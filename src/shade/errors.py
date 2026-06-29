@@ -8,6 +8,10 @@ from typing import Any, Optional
 
 INVALID_REQUEST_STATUS_CODES = (400, 422)
 
+# Sentinel distinguishing "field_errors not supplied" (parse it from the body)
+# from an explicit ``field_errors=None`` passed by the response funnel.
+_UNSET = object()
+
 
 class ShadeError(Exception):
     """Base exception for all Shade SDK errors."""
@@ -76,7 +80,16 @@ class AuthenticationError(ShadeError):
 
 
 class InvalidRequestError(ShadeError):
-    """Raised on HTTP 400/422 responses for malformed or invalid parameters."""
+    """Raised when a request is malformed or rejected by validation (HTTP 400/422).
+
+    Attributes:
+        param: The offending parameter named by the API, if any.
+        field_errors: Field-level validation errors. When supplied explicitly by
+            the SDK's response funnel it reflects exactly what the body provided
+            (a dict, a list, or ``None`` when absent). When the error is built
+            directly from a response body, it is parsed into a dict (``{}`` when
+            absent).
+    """
 
     def __init__(
         self,
@@ -84,13 +97,13 @@ class InvalidRequestError(ShadeError):
         status_code: Optional[int] = None,
         response_body: Optional[str] = None,
         param: Optional[str] = None,
-        field_errors: Optional[dict[str, Any]] = None,
+        field_errors: Any = _UNSET,
     ) -> None:
         super().__init__(message, status_code, response_body)
         parsed = _parse_error_response(response_body)
         self.param: Optional[str] = param if param is not None else parsed.get("param")
-        self.field_errors: dict[str, Any] = (
-            field_errors if field_errors is not None else parsed.get("field_errors", {})
+        self.field_errors: Any = (
+            parsed.get("field_errors", {}) if field_errors is _UNSET else field_errors
         )
 
     def __str__(self) -> str:
@@ -148,16 +161,6 @@ class NotFoundError(ShadeError):
     ) -> "NotFoundError":
         """Construct from a raw 404 response body."""
         return cls(message, status_code=404, response_body=response_body)
-
-
-def _parse_body(response_body: Optional[str]) -> dict:
-    if not response_body:
-        return {}
-    try:
-        data = json.loads(response_body)
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, ValueError):
-        return {}
 
 
 class NetworkError(ShadeError):

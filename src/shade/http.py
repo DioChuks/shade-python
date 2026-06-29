@@ -28,6 +28,7 @@ from .errors import (
     NetworkError,
     NotFoundError,
     RateLimitError,
+    ShadeError,
 )
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,170 @@ def _raise_for_status(
     except Exception:
         detail = body.decode("utf-8", errors="replace")[:200]
     raise HTTPError(f"HTTP {status}: {detail}".strip(), status_code=status)
+
+
+# ---------------------------------------------------------------------------
+# Single response parser
+# ---------------------------------------------------------------------------
+
+def _error_message(data: Any, default: str) -> str:
+    """Extract a human-readable message from a parsed error body.
+
+    Handles the common shapes ``{"error": {"message": ...}}``,
+    ``{"error": "..."}`` and ``{"message": ...}``. Falls back to *default*
+    when nothing usable is present (including when the body failed to decode).
+    """
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            message = err.get("message")
+            if message:
+                return str(message)
+        elif isinstance(err, str) and err:
+            return err
+        message = data.get("message")
+        if message:
+            return str(message)
+    return default
+
+
+def _field_errors(data: Any) -> Optional[Any]:
+    """Extract field-level validation errors from a parsed error body, if any.
+
+    Looks for ``fields``/``field_errors``/``errors`` either nested under
+    ``error`` or at the top level. Returns ``None`` when absent.
+    """
+    candidates = []
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            candidates.append(err)
+        candidates.append(data)
+    for source in candidates:
+        for key in ("fields", "field_errors", "errors"):
+            fields = source.get(key)
+            if fields:
+                return fields
+    return None
+
+
+def _parse_response(response: "httpx.Response") -> Dict[str, Any]:
+    """Parse an ``httpx.Response`` into a dict, mapping errors to typed exceptions.
+
+    This is the single funnel every resource method should route responses
+    through. Centralizing JSON decoding, success detection, and the mapping of
+    HTTP status codes to the SDK's typed exception hierarchy here keeps error
+    handling from drifting between resources.
+
+    Parameters
+    ----------
+    response : httpx.Response
+        The response returned by an httpx request.
+
+    Returns
+    -------
+    dict
+        The decoded JSON body of a successful (2xx) response.
+
+    Raises
+    ------
+    AuthenticationError
+        For HTTP 401/403.
+    InvalidRequestError
+        For HTTP 400/422, carrying field-level errors when the body provides
+        them.
+    NotFoundError
+        For HTTP 404.
+    RateLimitError
+        For HTTP 429.
+    NetworkError
+        For HTTP 5xx (subject to retry by callers).
+    HTTPError
+        For any other non-2xx status not covered above.
+    ShadeError
+        When a 2xx body cannot be decoded as JSON, or a 2xx body itself
+        carries an ``error`` key. The raw body and HTTP status are attached to
+        every raised exception.
+    """
+    status = response.status_code
+    body = response.text
+
+    # Decode up-front so the raw body can drive both error mapping and the
+    # success path. A decode failure is captured rather than raised here so
+    # error statuses still produce their typed exception with the raw body.
+    try:
+        data: Any = json.loads(body) if body else {}
+        decoded = True
+    except (json.JSONDecodeError, ValueError):
+        data = None
+        decoded = False
+
+    if 200 <= status < 300:
+        if not decoded:
+            raise ShadeError(
+                "Invalid response from API",
+                status_code=status,
+                response_body=body,
+            )
+        if not isinstance(data, dict):
+            raise ShadeError(
+                "Invalid response from API",
+                status_code=status,
+                response_body=body,
+            )
+        # A 2xx body that still carries an error is treated as a failure.
+        if data.get("error"):
+            raise ShadeError(
+                _error_message(data, "API returned an error"),
+                status_code=status,
+                response_body=body,
+            )
+        return data
+
+    if status in (401, 403):
+        raise AuthenticationError(
+            _error_message(data, "Authentication failed"),
+            status_code=status,
+            response_body=body,
+        )
+
+    if status in (400, 422):
+        raise InvalidRequestError(
+            _error_message(data, "Invalid request"),
+            status_code=status,
+            response_body=body,
+            field_errors=_field_errors(data),
+        )
+
+    if status == 404:
+        raise NotFoundError(
+            _error_message(data, "Resource not found"),
+            status_code=status,
+            response_body=body,
+        )
+
+    if status == 429:
+        raise RateLimitError(
+            _error_message(data, "Rate limit exceeded"),
+            retry_after=_parse_retry_after(response.headers),
+            status_code=status,
+            response_body=body,
+        )
+
+    if 500 <= status < 600:
+        raise NetworkError(
+            _error_message(data, f"Server error: {status}"),
+            status_code=status,
+            response_body=body,
+        )
+
+    # Any other non-2xx status (e.g. 3xx, uncommon 4xx) still maps to a typed
+    # exception so nothing escapes the funnel unhandled.
+    raise HTTPError(
+        _error_message(data, f"HTTP {status}"),
+        status_code=status,
+        response_body=body,
+    )
 
 
 # ---------------------------------------------------------------------------
