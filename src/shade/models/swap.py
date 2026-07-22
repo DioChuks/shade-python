@@ -61,6 +61,8 @@ class SwapPayment:
     ------
     ValueError
         If ``slippage_tolerance`` is not in the open interval (0, 1).
+    ValueError
+        If ``status`` is not a valid :class:`SwapStatus` value.
     """
 
     def __init__(
@@ -89,7 +91,10 @@ class SwapPayment:
         self.amount_out = amount_out
         self.routing_path: List[str] = list(routing_path)
         self.slippage_tolerance = slippage_tolerance
-        self.status = status
+        # Normalize raw strings to the enum so the invariant always holds.
+        self.status: SwapStatus = (
+            status if isinstance(status, SwapStatus) else SwapStatus(status)
+        )
         self.stellar_tx_hash = stellar_tx_hash
         self.created_at = created_at
 
@@ -161,7 +166,8 @@ class SwapPayment:
             "settle_out_token": self.settle_out_token,
             "amount_in": str(self.amount_in),
             "amount_out": str(self.amount_out) if self.amount_out is not None else None,
-            "routing_path": self.routing_path,
+            # Return a copy so callers cannot mutate the model's internal list.
+            "routing_path": list(self.routing_path),
             "slippage_tolerance": self.slippage_tolerance,
             "status": self.status.value,
             "stellar_tx_hash": self.stellar_tx_hash,

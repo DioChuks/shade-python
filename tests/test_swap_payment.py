@@ -207,3 +207,45 @@ class TestSwapPaymentToDict:
         d = swap.to_dict()
         assert isinstance(d["status"], str)
         assert d["status"] == "pending"
+
+    def test_routing_path_copy_is_returned(self):
+        """Mutating the serialised routing_path must not affect the model."""
+        swap = SwapPayment.from_dict(VALID_PAYLOAD)
+        d = swap.to_dict()
+        d["routing_path"].append("BTC")  # mutate the returned copy
+        assert "BTC" not in swap.routing_path  # internal list unchanged
+
+
+# ---------------------------------------------------------------------------
+# Constructor raw-string status coercion (CodeRabbit fix)
+# ---------------------------------------------------------------------------
+
+
+class TestSwapStatusCoercion:
+    def _make(self, status_value) -> SwapPayment:
+        return SwapPayment(
+            id="swap_coerce",
+            pay_in_token="USDC",
+            settle_out_token="XLM",
+            amount_in=Decimal("100"),
+            routing_path=["USDC", "XLM"],
+            slippage_tolerance=0.01,
+            status=status_value,
+        )
+
+    def test_raw_string_is_coerced_to_enum(self):
+        """Passing a raw status string should still store a SwapStatus enum."""
+        swap = self._make("completed")
+        assert isinstance(swap.status, SwapStatus)
+        assert swap.status is SwapStatus.COMPLETED
+
+    def test_to_dict_works_after_raw_string_status(self):
+        """to_dict must not raise even when status was constructed from a string."""
+        swap = self._make("swapping")
+        d = swap.to_dict()
+        assert d["status"] == "swapping"
+
+    def test_invalid_raw_string_raises_value_error(self):
+        """An unknown status string should raise ValueError from the enum."""
+        with pytest.raises(ValueError):
+            self._make("unknown_status")
