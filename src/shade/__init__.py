@@ -2,10 +2,12 @@ import sys
 from types import ModuleType
 from typing import Optional
 
+from .base import ShadeObject
 from .client import ShadeClient
 from .config import config, Environment
 from .gateway import Gateway
 from .http import AsyncHTTPClient, SyncHTTPClient
+from .merchant import Merchant
 from .errors import (
     AuthenticationError,
     InvalidRequestError,
@@ -28,11 +30,13 @@ __all__ = [
     "Gateway",
     "HTTPError",
     "InvalidRequestError",
+    "Merchant",
     "NetworkError",
     "NotFoundError",
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
+    "ShadeObject",
     "SyncHTTPClient",
     "config",
     "api_base",
