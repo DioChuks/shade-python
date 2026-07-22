@@ -15,6 +15,7 @@ from .errors import (
     RateLimitError,
     ShadeError,
 )
+from .models import SwapPayment, SwapStatus
 
 __version__ = "0.1.0"
 
@@ -34,6 +35,8 @@ __all__ = [
     "ShadeClient",
     "ShadeError",
     "SyncHTTPClient",
+    "SwapPayment",
+    "SwapStatus",
     "config",
     "api_base",
     "environment",
