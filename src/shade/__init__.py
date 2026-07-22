@@ -15,6 +15,7 @@ from .errors import (
     RateLimitError,
     ShadeError,
 )
+from .models import ShadeObject
 
 __version__ = "0.1.0"
 
@@ -33,6 +34,7 @@ __all__ = [
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
+    "ShadeObject",
     "SyncHTTPClient",
     "config",
     "api_base",
