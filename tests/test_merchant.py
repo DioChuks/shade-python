@@ -86,6 +86,21 @@ def test_non_integer_merchant_id_raises():
     assert exc_info.value.param == "merchant_id"
 
 
+@pytest.mark.parametrize("field", ["active", "verified"])
+@pytest.mark.parametrize("value", ["false", "true", "", 0, 1, None])
+def test_non_boolean_flags_are_rejected(field, value):
+    """Strings like "false" must not be silently coerced to True."""
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Merchant.from_dict(_api_response(**{field: value}))
+    assert exc_info.value.param == field
+
+
+def test_boolean_flags_are_preserved():
+    merchant = Merchant.from_dict(_api_response(active=False, verified=True))
+    assert merchant.active is False
+    assert merchant.verified is True
+
+
 def test_display_name_prefers_business_name():
     merchant = Merchant.from_dict(_api_response())
     assert merchant.display_name == "Acme Payments"

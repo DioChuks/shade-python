@@ -36,7 +36,7 @@ class Merchant(ShadeObject):
     def __init__(
         self,
         *,
-        id: str,
+        id: str,  # noqa: A002 - required API field name
         merchant_id: int,
         address: str,
         active: bool,
@@ -54,8 +54,8 @@ class Merchant(ShadeObject):
         self.id: str = id
         self.merchant_id: int = _coerce_merchant_id(merchant_id)
         self.address: str = _validate_stellar_address(address)
-        self.active: bool = bool(active)
-        self.verified: bool = bool(verified)
+        self.active: bool = _require_bool(active, "active")
+        self.verified: bool = _require_bool(verified, "verified")
         self.account: Optional[str] = account
         self.email: Optional[str] = email
         self.first_name: Optional[str] = first_name
@@ -79,6 +79,20 @@ class Merchant(ShadeObject):
         if full_name:
             return full_name
         return self.email
+
+
+def _require_bool(value: Any, param: str) -> bool:
+    """Return ``value`` only if it is a real ``bool``.
+
+    Coercing here would be unsafe: ``bool("false")`` is ``True``, so a
+    malformed payload could silently flip a flag like ``active``.
+    """
+    if not isinstance(value, bool):
+        raise InvalidRequestError(
+            f"{param} must be a boolean, got {value!r}",
+            param=param,
+        )
+    return value
 
 
 def _coerce_merchant_id(value: Any) -> int:
