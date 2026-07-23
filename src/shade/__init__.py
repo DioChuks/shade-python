@@ -14,6 +14,7 @@ from .errors import (
     HTTPError,
     RateLimitError,
     ShadeError,
+    SignatureVerificationError,
 )
 
 __version__ = "0.1.0"
@@ -33,6 +34,7 @@ __all__ = [
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
+    "SignatureVerificationError",
     "SyncHTTPClient",
     "config",
     "api_base",
