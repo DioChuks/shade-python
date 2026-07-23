@@ -71,14 +71,17 @@ class Merchant(ShadeObject):
         """The most informative human-readable name available.
 
         Prefers ``business_name``; falls back to the person's full name
-        (``"{first_name} {last_name}"`` trimmed); finally ``email``.
+        (``"{first_name} {last_name}"``); finally ``email``.  Each candidate is
+        trimmed, so a blank or whitespace-only value falls through to the next
+        one rather than being returned.  ``None`` when nothing is available.
         """
-        if self.business_name:
-            return self.business_name
+        business_name = (self.business_name or "").strip()
+        if business_name:
+            return business_name
         full_name = f"{self.first_name or ''} {self.last_name or ''}".strip()
         if full_name:
             return full_name
-        return self.email
+        return (self.email or "").strip() or None
 
 
 def _require_bool(value: Any, param: str) -> bool:

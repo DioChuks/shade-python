@@ -123,6 +123,31 @@ def test_display_name_falls_back_to_email():
     assert merchant.display_name == "owner@acme.test"
 
 
+def test_display_name_ignores_whitespace_only_business_name():
+    """A blank business_name must fall through, not be returned verbatim."""
+    merchant = Merchant.from_dict(_api_response(businessName="   "))
+    assert merchant.display_name == "Ada Lovelace"
+
+
+def test_display_name_ignores_whitespace_only_names():
+    merchant = Merchant.from_dict(
+        _api_response(businessName="", firstName="  ", lastName="\t")
+    )
+    assert merchant.display_name == "owner@acme.test"
+
+
+def test_display_name_is_none_when_every_candidate_is_blank():
+    merchant = Merchant.from_dict(
+        _api_response(businessName="   ", firstName="", lastName=None, email="  ")
+    )
+    assert merchant.display_name is None
+
+
+def test_display_name_trims_the_returned_value():
+    merchant = Merchant.from_dict(_api_response(businessName="  Acme Payments  "))
+    assert merchant.display_name == "Acme Payments"
+
+
 def test_optional_fields_default_to_none():
     merchant = Merchant(
         id="x",
