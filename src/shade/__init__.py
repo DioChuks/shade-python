@@ -14,6 +14,7 @@ from .errors import (
     HTTPError,
     RateLimitError,
     ShadeError,
+    SignatureVerificationError,
 )
 from .models import Merchant, ShadeObject
 
@@ -35,6 +36,7 @@ __all__ = [
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
+    "SignatureVerificationError",
     "ShadeObject",
     "SyncHTTPClient",
     "config",
