@@ -17,6 +17,7 @@ from .errors import (
     RateLimitError,
     ShadeError,
 )
+from .models import ShadeObject
 
 __version__ = "0.1.0"
 
