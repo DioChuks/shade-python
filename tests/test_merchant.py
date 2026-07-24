@@ -158,6 +158,15 @@ def test_display_name_trims_the_returned_value():
     assert merchant.display_name == "Acme Payments"
 
 
+def test_display_name_normalizes_padded_name_components():
+    # Each component is stripped before joining, so padding does not leak into
+    # the middle of the full name as a double space.
+    merchant = Merchant.from_dict(
+        _api_response(businessName=None, firstName=" Ada ", lastName=" Lovelace ")
+    )
+    assert merchant.display_name == "Ada Lovelace"
+
+
 def test_optional_fields_default_to_none():
     merchant = Merchant(
         id="x",

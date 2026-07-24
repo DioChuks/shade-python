@@ -73,7 +73,9 @@ class Merchant(ShadeObject):
         business_name = (self.business_name or "").strip()
         if business_name:
             return business_name
-        full_name = f"{self.first_name or ''} {self.last_name or ''}".strip()
+        first_name = (self.first_name or "").strip()
+        last_name = (self.last_name or "").strip()
+        full_name = " ".join(part for part in (first_name, last_name) if part)
         if full_name:
             return full_name
         return (self.email or "").strip() or None
