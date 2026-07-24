@@ -16,6 +16,7 @@ from .errors import (
     ShadeError,
     SignatureVerificationError,
 )
+from .models import Merchant, ShadeObject
 
 __version__ = "0.1.0"
 
@@ -29,12 +30,14 @@ __all__ = [
     "Gateway",
     "HTTPError",
     "InvalidRequestError",
+    "Merchant",
     "NetworkError",
     "NotFoundError",
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
     "SignatureVerificationError",
+    "ShadeObject",
     "SyncHTTPClient",
     "config",
     "api_base",
