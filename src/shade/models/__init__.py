@@ -2,5 +2,6 @@
 Shade API response models.
 """
 from .base import ShadeObject
+from .merchant import Merchant
 
-__all__ = ["ShadeObject"]
+__all__ = ["Merchant", "ShadeObject"]

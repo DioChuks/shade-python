@@ -53,9 +53,12 @@ def test_merchant_is_exported_from_package():
     assert issubclass(Merchant, ShadeObject)
 
 
-def test_from_dict_ignores_unknown_keys():
-    merchant = Merchant.from_dict(_api_response(createdAt="2026-01-01", extra="x"))
+def test_from_dict_preserves_unknown_keys():
+    # The ShadeObject base allows extra fields so a server-side addition never
+    # breaks an older SDK; the known fields still map correctly.
+    merchant = Merchant.from_dict(_api_response(createdAt="2026-01-01"))
     assert merchant.merchant_id == 42
+    assert merchant.to_dict()["createdAt"] == "2026-01-01"
 
 
 def test_from_dict_requires_a_mapping():
@@ -83,7 +86,14 @@ def test_address_wrong_length_is_rejected():
 def test_non_integer_merchant_id_raises():
     with pytest.raises(InvalidRequestError) as exc_info:
         Merchant.from_dict(_api_response(merchantId="abc"))
-    assert exc_info.value.param == "merchant_id"
+    assert exc_info.value.param == "merchantId"
+
+
+def test_boolean_merchant_id_is_rejected():
+    # A bool would otherwise be coerced to 1/0; it is never a valid merchant id.
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Merchant.from_dict(_api_response(merchantId=True))
+    assert exc_info.value.param == "merchantId"
 
 
 @pytest.mark.parametrize("field", ["active", "verified"])

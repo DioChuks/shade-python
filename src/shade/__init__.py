@@ -2,12 +2,10 @@ import sys
 from types import ModuleType
 from typing import Optional
 
-from .base import ShadeObject
 from .client import ShadeClient
 from .config import config, Environment
 from .gateway import Gateway
 from .http import AsyncHTTPClient, SyncHTTPClient
-from .merchant import Merchant
 from .errors import (
     AuthenticationError,
     InvalidRequestError,
@@ -17,7 +15,7 @@ from .errors import (
     RateLimitError,
     ShadeError,
 )
-from .models import ShadeObject
+from .models import Merchant, ShadeObject
 
 __version__ = "0.1.0"
 
