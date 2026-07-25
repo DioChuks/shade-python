@@ -163,6 +163,40 @@ class NotFoundError(ShadeError):
         return cls(message, status_code=404, response_body=response_body)
 
 
+class SignatureVerificationError(ShadeError):
+    """
+    Raised by ``Webhook.construct_event()`` when the HMAC-SHA256 signature in
+    the ``Shade-Signature`` header does not match the signature computed for
+    the payload.
+
+    Attributes:
+        header: The raw ``Shade-Signature`` header value as received.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        header: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.header = header
+
+    @classmethod
+    def from_mismatch(cls, header: Optional[str] = None) -> "SignatureVerificationError":
+        """Construct the error for a computed/received signature mismatch.
+
+        The expected signature is deliberately not accepted as an argument
+        here, so it can never end up in the exception message.
+        """
+        message = (
+            "Webhook signature verification failed: the received signature "
+            "does not match the signature computed for this payload. This "
+            "usually means the webhook secret is incorrect, or the payload "
+            "was modified in transit."
+        )
+        return cls(message, header=header)
+
+
 class NetworkError(ShadeError):
     """Raised when the SDK cannot complete a network request."""
 

@@ -1,10 +1,8 @@
 """
-Shade data models.
+Shade API response models.
 """
+from .base import ShadeObject
+from .merchant import Merchant
+from .transfer import Transfer, TransferStatus
 
-from .swap import SwapPayment, SwapStatus
-
-__all__ = [
-    "SwapPayment",
-    "SwapStatus",
-]
+__all__ = ["Merchant", "ShadeObject", "Transfer", "TransferStatus"]

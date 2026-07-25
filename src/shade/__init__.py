@@ -14,8 +14,9 @@ from .errors import (
     HTTPError,
     RateLimitError,
     ShadeError,
+    SignatureVerificationError,
 )
-from .models import SwapPayment, SwapStatus
+from .models import Merchant, ShadeObject, Transfer, TransferStatus
 
 __version__ = "0.1.0"
 
@@ -29,14 +30,17 @@ __all__ = [
     "Gateway",
     "HTTPError",
     "InvalidRequestError",
+    "Merchant",
     "NetworkError",
     "NotFoundError",
     "RateLimitError",
     "ShadeClient",
     "ShadeError",
+    "SignatureVerificationError",
+    "ShadeObject",
     "SyncHTTPClient",
-    "SwapPayment",
-    "SwapStatus",
+    "Transfer",
+    "TransferStatus",
     "config",
     "api_base",
     "environment",
