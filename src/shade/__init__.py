@@ -16,7 +16,7 @@ from .errors import (
     ShadeError,
     SignatureVerificationError,
 )
-from .models import Merchant, ShadeObject
+from .models import Merchant, ShadeObject, Transfer, TransferStatus
 
 __version__ = "0.1.0"
 
@@ -39,6 +39,8 @@ __all__ = [
     "SignatureVerificationError",
     "ShadeObject",
     "SyncHTTPClient",
+    "Transfer",
+    "TransferStatus",
     "config",
     "api_base",
     "environment",
