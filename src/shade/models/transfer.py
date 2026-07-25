@@ -49,10 +49,14 @@ class Transfer(ShadeObject):
 
     @field_validator("asset", mode="before")
     @classmethod
-    def _default_asset(cls, value: Optional[str]) -> str:
+    def _default_asset(cls, value: object) -> object:
         # Covers both a missing key (pydantic would already default it) and an
-        # API response that sends the key with an explicit null/empty value.
-        return value if value else "XLM"
+        # API response that sends the key as an explicit null/empty string.
+        # Other falsy-but-wrong types (e.g. False, 0) are left alone so
+        # pydantic's normal type validation rejects them.
+        if value is None or value == "":
+            return "XLM"
+        return value
 
     @field_validator("source_address", "destination_address")
     @classmethod

@@ -60,6 +60,14 @@ def test_asset_defaults_to_xlm_when_null():
     assert transfer.asset == "XLM"
 
 
+def test_malformed_asset_is_rejected_not_defaulted():
+    # False/0 are falsy but must not be silently coerced to "XLM" — they are
+    # the wrong type and should surface as a validation error instead.
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Transfer.from_dict(_api_response(asset=False))
+    assert exc_info.value.param == "asset"
+
+
 def test_status_is_transfer_status_enum():
     for raw in ("pending", "processing", "completed", "failed"):
         transfer = Transfer.from_dict(_api_response(status=raw))
