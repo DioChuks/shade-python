@@ -16,7 +16,7 @@ from .errors import (
     ShadeError,
     SignatureVerificationError,
 )
-from .models import Merchant, ShadeObject, Transfer, TransferStatus
+from .models import AssetBalance, Balance, Merchant, ShadeObject, Transfer, TransferStatus
 
 __version__ = "0.1.0"
 
@@ -24,8 +24,10 @@ __version__ = "0.1.0"
 ShadeClient = Gateway
 
 __all__ = [
+    "AssetBalance",
     "AsyncHTTPClient",
     "AuthenticationError",
+    "Balance",
     "Environment",
     "Gateway",
     "HTTPError",
