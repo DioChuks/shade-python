@@ -127,6 +127,21 @@ class TestInstanceOverridesBeatsGlobalConfig:
         req = mock_exec.call_args[0][0]
         assert req.full_url.startswith(Environment.PRODUCTION.base_url)
 
+    def test_gateway_setter_updates_propagate_to_subclients(self):
+        gateway = Gateway(api_key="sk_initial", environment="sandbox")
+
+        gateway.api_key = "sk_updated_setter"
+        gateway.environment = "production"
+
+        with patch.object(gateway._http, "_execute") as mock_exec:
+            mock_exec.return_value = (200, {}, b'{"ok": true}')
+            gateway.process_payment(10.0, "USD")
+
+        req = mock_exec.call_args[0][0]
+        assert req.headers["Authorization"] == "Bearer sk_updated_setter"
+        assert req.full_url.startswith(Environment.PRODUCTION.base_url)
+
+
 
 
 

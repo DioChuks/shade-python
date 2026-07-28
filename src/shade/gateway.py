@@ -91,6 +91,9 @@ class Gateway:
     @api_key.setter
     def api_key(self, value: Optional[str]) -> None:
         self._api_key = value
+        self._http.api_key = value
+        self._async_http.api_key = value
+        self._client.api_key = value
 
     @property
     def environment(self) -> Environment:
@@ -100,7 +103,12 @@ class Gateway:
 
     @environment.setter
     def environment(self, value: str | Environment) -> None:
-        self._environment = _config.parse_environment(value)
+        parsed = _config.parse_environment(value)
+        self._environment = parsed
+        self._http.environment = parsed
+        self._async_http.environment = parsed
+        self._client.environment = parsed
+
 
     @property
     def _base_url(self) -> str:
