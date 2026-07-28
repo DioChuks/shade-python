@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-from .config import DEFAULT_MAX_RETRIES, validate_client_settings, get_config
+from .config import DEFAULT_MAX_RETRIES, Environment, validate_client_settings, get_config
 from . import config as _config
 from .errors import (
     AuthenticationError,
@@ -403,6 +403,8 @@ class SyncHTTPClient:
         Base URL (no trailing slash).
     api_key : str, optional
         Bearer token sent as ``Authorization: Bearer <api_key>``.
+    environment : str | Environment, optional
+        Controls default API URL when base_url is omitted.
     max_retries : int, optional
         How many times to retry on 429 before raising ``RateLimitError``.
         Set to ``0`` to disable auto-retry.
@@ -414,6 +416,7 @@ class SyncHTTPClient:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        environment: Optional[Environment | str] = None,
         max_retries: Optional[int] = None,
         timeout: Optional[float] = None,
     ) -> None:
@@ -423,6 +426,7 @@ class SyncHTTPClient:
         else:
             self._base_url = None
         self.api_key = api_key
+        self.environment = environment
         self._max_retries = max_retries
         self._timeout = timeout
         if timeout is not None or max_retries is not None:
@@ -443,7 +447,8 @@ class SyncHTTPClient:
     def base_url(self) -> str:
         if self._base_url:
             return self._base_url
-        return _config.api_base or _config.environment.base_url.rstrip("/")
+        env = _config.parse_environment(self.environment) if self.environment is not None else _config.environment
+        return _config.api_base or env.base_url.rstrip("/")
 
     def _build_request(
         self,
@@ -486,6 +491,7 @@ class SyncHTTPClient:
         """
         cfg = get_config(
             api_key=self.api_key,
+            environment=self.environment,
             api_base=self._base_url,
             timeout=self._timeout,
             max_retries=self._max_retries,
@@ -531,7 +537,6 @@ class SyncHTTPClient:
             return exc.code, exc.headers, body
 
 
-
 # ---------------------------------------------------------------------------
 # Asynchronous client
 # ---------------------------------------------------------------------------
@@ -549,6 +554,7 @@ class AsyncHTTPClient:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        environment: Optional[Environment | str] = None,
         max_retries: Optional[int] = None,
         timeout: Optional[float] = None,
     ) -> None:
@@ -558,6 +564,7 @@ class AsyncHTTPClient:
         else:
             self._base_url = None
         self.api_key = api_key
+        self.environment = environment
         self._max_retries = max_retries
         self._timeout = timeout
         if timeout is not None or max_retries is not None:
@@ -578,7 +585,8 @@ class AsyncHTTPClient:
     def base_url(self) -> str:
         if self._base_url:
             return self._base_url
-        return _config.api_base or _config.environment.base_url.rstrip("/")
+        env = _config.parse_environment(self.environment) if self.environment is not None else _config.environment
+        return _config.api_base or env.base_url.rstrip("/")
 
     async def request(
         self,
@@ -615,6 +623,7 @@ class AsyncHTTPClient:
 
         cfg = get_config(
             api_key=self.api_key,
+            environment=self.environment,
             api_base=self._base_url,
             timeout=self._timeout,
             max_retries=self._max_retries,
@@ -666,4 +675,6 @@ class AsyncHTTPClient:
                 if wait is None:
                     return json.loads(body) if body else {}
                 await asyncio.sleep(wait)
-                attempt += 1
+                attempt += 1
+
+

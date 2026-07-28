@@ -116,6 +116,18 @@ class TestInstanceOverridesBeatsGlobalConfig:
         req = mock_exec.call_args[0][0]
         assert req.full_url.startswith("https://override-base.example.com")
 
+    def test_gateway_environment_override_propagates_to_subclients(self):
+        shade.environment = "sandbox"
+        gateway = Gateway(api_key="sk_test", environment="production")
+
+        with patch.object(gateway._http, "_execute") as mock_exec:
+            mock_exec.return_value = (200, {}, b'{"ok": true}')
+            gateway.process_payment(10.0, "USD")
+
+        req = mock_exec.call_args[0][0]
+        assert req.full_url.startswith(Environment.PRODUCTION.base_url)
+
+
 
 
 class TestThreadSafety:

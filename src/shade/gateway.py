@@ -63,12 +63,14 @@ class Gateway:
         self._http = SyncHTTPClient(
             base_url=self._api_base,
             api_key=self._api_key,
+            environment=self._environment,
             max_retries=self._max_retries,
             timeout=self._timeout,
         )
         self._async_http = AsyncHTTPClient(
             base_url=self._api_base,
             api_key=self._api_key,
+            environment=self._environment,
             max_retries=self._max_retries,
             timeout=self._timeout,
         )
@@ -76,9 +78,11 @@ class Gateway:
         self._client = ClientShadeClient(
             api_key=self._api_key,
             base_url=self._api_base,
+            environment=self._environment,
             debug=debug,
             http_client=http_client,
         )
+
 
     @property
     def api_key(self) -> Optional[str]:

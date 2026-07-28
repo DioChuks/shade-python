@@ -3,7 +3,7 @@ from typing import Any, Mapping, Optional
 import httpx
 
 from shade._debug import log_request, log_response
-from shade.config import config, get_config
+from shade.config import Environment, config, get_config
 
 
 class ShadeClient:
@@ -13,11 +13,13 @@ class ShadeClient:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        environment: Optional[Environment | str] = None,
         debug: bool = False,
         http_client: Optional[httpx.Client] = None,
     ):
         self.api_key = api_key
         self._base_url = base_url.rstrip("/") if base_url else None
+        self.environment = environment
         self.debug = debug
         self._http = http_client or httpx.Client()
         self._owns_http_client = http_client is None
@@ -26,7 +28,8 @@ class ShadeClient:
     def base_url(self) -> str:
         if self._base_url:
             return self._base_url
-        return config.api_base or config.environment.base_url.rstrip("/")
+        env = config.parse_environment(self.environment) if self.environment is not None else config.environment
+        return config.api_base or env.base_url.rstrip("/")
 
     def close(self) -> None:
         if self._owns_http_client:
@@ -52,8 +55,10 @@ class ShadeClient:
     ) -> httpx.Response:
         cfg = get_config(
             api_key=self.api_key,
+            environment=self.environment,
             api_base=self._base_url,
         )
+
         normalized_path = path if path.startswith("/") else f"/{path}"
         url = f"{cfg.base_url}{normalized_path}"
         request_headers = {"Authorization": f"Bearer {cfg.api_key}", **(headers or {})}
