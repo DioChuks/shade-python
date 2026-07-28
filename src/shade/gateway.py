@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from . import config as _config
 from .client import ShadeClient as ClientShadeClient
-from .config import Environment, validate_client_settings
+from .config import Environment, validate_client_settings, get_config
 from .http import AsyncHTTPClient, SyncHTTPClient, DEFAULT_MAX_RETRIES
 
 
@@ -15,8 +15,8 @@ class Gateway:
 
     Parameters
     ----------
-    api_key : str
-        Your Shade API key.
+    api_key : str, optional
+        Your Shade API key. Defaults to module-level ``shade.api_key``.
     environment : str | Environment, optional
         Controls the Stellar network passphrase and the default API URL.
         Defaults to the module-level ``shade.environment`` (``Environment.SANDBOX``).
@@ -29,16 +29,16 @@ class Gateway:
         Deprecated. Prefer ``api_base``.
     max_retries : int, optional
         Number of automatic retries on HTTP 429 and transient failures.
-        Defaults to the module-level ``shade.max_retries`` (3).  Set to ``0``
+        Defaults to the module-level ``shade.max_retries`` (3). Set to ``0``
         to disable auto-retry.
     timeout : float, optional
-        Per-request socket timeout in seconds.  Defaults to the module-level
+        Per-request socket timeout in seconds. Defaults to the module-level
         ``shade.timeout`` (30.0).
     """
 
     def __init__(
         self,
-        api_key: str = "",
+        api_key: Optional[str] = None,
         environment: Optional[Environment | str] = None,
         api_base: Optional[str] = None,
         base_url: str = "",
@@ -47,44 +47,65 @@ class Gateway:
         debug: bool = False,
         http_client: Optional[httpx.Client] = None,
     ) -> None:
-        if not api_key:
-            raise ValueError("api_key must be a non-empty string")
-        self.api_key = api_key
-        
-        if environment is not None:
-            self.environment = _config.parse_environment(environment)
-        else:
-            self.environment = _config.environment
+        self._api_key = api_key
+        self._environment = environment
+        self._api_base = api_base or (base_url if base_url else None)
+        self._max_retries = max_retries
+        self._timeout = timeout
+        self.debug = debug
 
-        resolved_max_retries = (
-            _config.max_retries if max_retries is None else max_retries
-        )
-        resolved_timeout = _config.timeout if timeout is None else timeout
-        validate_client_settings(resolved_timeout, resolved_max_retries)
+        if max_retries is not None or timeout is not None:
+            validate_client_settings(
+                timeout if timeout is not None else _config.timeout,
+                max_retries if max_retries is not None else _config.max_retries,
+            )
 
-        # Resolution order: explicit api_base > module-level shade.api_base
-        # > legacy base_url > environment URL
-        resolved = api_base or _config.api_base or base_url or self.environment.base_url
-        self._base_url = resolved.rstrip("/")
         self._http = SyncHTTPClient(
-            base_url=self._base_url,
-            api_key=api_key,
-            max_retries=resolved_max_retries,
-            timeout=resolved_timeout,
+            base_url=self._api_base,
+            api_key=self._api_key,
+            max_retries=self._max_retries,
+            timeout=self._timeout,
         )
         self._async_http = AsyncHTTPClient(
-            base_url=self._base_url,
-            api_key=api_key,
-            max_retries=resolved_max_retries,
-            timeout=resolved_timeout,
+            base_url=self._api_base,
+            api_key=self._api_key,
+            max_retries=self._max_retries,
+            timeout=self._timeout,
         )
 
         self._client = ClientShadeClient(
-            api_key=api_key,
-            base_url=self._base_url,
+            api_key=self._api_key,
+            base_url=self._api_base,
             debug=debug,
             http_client=http_client,
         )
+
+    @property
+    def api_key(self) -> Optional[str]:
+        return self._api_key if self._api_key is not None else _config.api_key
+
+    @api_key.setter
+    def api_key(self, value: Optional[str]) -> None:
+        self._api_key = value
+
+    @property
+    def environment(self) -> Environment:
+        if self._environment is not None:
+            return _config.parse_environment(self._environment)
+        return _config.environment
+
+    @environment.setter
+    def environment(self, value: str | Environment) -> None:
+        self._environment = _config.parse_environment(value)
+
+    @property
+    def _base_url(self) -> str:
+        if self._api_base:
+            return self._api_base.rstrip("/")
+        if _config.api_base:
+            return _config.api_base.rstrip("/")
+        return self.environment.base_url.rstrip("/")
+
 
     # ------------------------------------------------------------------
     # Sync API
@@ -151,3 +172,4 @@ class Gateway:
             "/payments",
             {"amount": amount, "currency": currency},
         )
+
