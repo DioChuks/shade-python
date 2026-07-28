@@ -19,8 +19,10 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-from .config import DEFAULT_MAX_RETRIES, Environment, validate_client_settings, get_config
-from . import config as _config
+
+from .config import DEFAULT_MAX_RETRIES, Environment, config as _config, get_config, validate_client_settings
+
+
 from .errors import (
     AuthenticationError,
     HTTPError,
