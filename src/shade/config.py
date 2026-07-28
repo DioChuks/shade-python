@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 
 import threading
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 from stellar_sdk import Network
 
@@ -20,7 +20,15 @@ class ResolvedConfig(NamedTuple):
 
 
 class Config:
-    """Thread-safe global SDK configuration."""
+    """Thread-safe global SDK configuration.
+
+    Note:
+        Configuration assignments made on the main thread (e.g. ``shade.api_key = "..."``)
+        update both process-wide defaults and thread-local state. Assignments made outside
+        the main thread update ONLY thread-local state for the calling thread and do not
+        alter process-wide defaults for other threads. Global configuration setup should be
+        performed from the main thread during application startup.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -45,7 +53,7 @@ class Config:
             self._global_debug = False
         self._local.__dict__.clear()
 
-    def _get_local(self, attr_name: str) -> tuple[bool, any]:
+    def _get_local(self, attr_name: str) -> tuple[bool, Any]:
         with self._lock:
             current_gen = self._generation
         if getattr(self._local, "generation", None) == current_gen:
@@ -53,7 +61,7 @@ class Config:
                 return True, getattr(self._local, attr_name)
         return False, None
 
-    def _set_local(self, attr_name: str, value: any) -> None:
+    def _set_local(self, attr_name: str, value: Any) -> None:
         with self._lock:
             current_gen = self._generation
         if getattr(self._local, "generation", None) != current_gen:
@@ -71,6 +79,7 @@ class Config:
 
     @api_key.setter
     def api_key(self, value: Optional[str]) -> None:
+        """Set the API key. Updates process-wide default if called from main thread."""
         self._set_local("api_key", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
@@ -86,6 +95,7 @@ class Config:
 
     @api_base.setter
     def api_base(self, value: Optional[str]) -> None:
+        """Set the API base URL override. Updates process-wide default if called from main thread."""
         self._set_local("api_base", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
@@ -101,6 +111,7 @@ class Config:
 
     @environment.setter
     def environment(self, value: str | Environment) -> None:
+        """Set the active environment. Updates process-wide default if called from main thread."""
         parsed = self.parse_environment(value)
         self._set_local("environment", parsed)
         if threading.current_thread() is threading.main_thread():
@@ -117,6 +128,7 @@ class Config:
 
     @timeout.setter
     def timeout(self, value: float) -> None:
+        """Set the socket timeout. Updates process-wide default if called from main thread."""
         self._set_local("timeout", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
@@ -132,10 +144,12 @@ class Config:
 
     @max_retries.setter
     def max_retries(self, value: int) -> None:
+        """Set the max retries limit. Updates process-wide default if called from main thread."""
         self._set_local("max_retries", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_max_retries = value
+
 
     @property
     def debug(self) -> bool:
