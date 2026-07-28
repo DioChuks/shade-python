@@ -179,6 +179,11 @@ class TestMaxRetriesBehaviour:
         mock_sleep.assert_not_called()
 
 
-class TestShadeClientAlias:
-    def test_shade_client_is_gateway(self):
-        assert ShadeClient is Gateway
+class TestShadeClientRelationship:
+    def test_gateway_is_a_shade_client(self):
+        assert issubclass(Gateway, ShadeClient)
+
+    def test_gateway_inherits_client_settings(self):
+        gateway = Gateway(api_key="test-key", timeout=7.0, max_retries=1)
+        assert gateway._http.timeout == 7.0
+        assert gateway._http.max_retries == 1

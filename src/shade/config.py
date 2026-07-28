@@ -10,6 +10,7 @@ class Config:
 
     def __init__(self):
         self.debug: bool = False
+        self.api_key: Optional[str] = None
         self._api_base: Optional[str] = None
         self.timeout: float = DEFAULT_TIMEOUT
         self.max_retries: int = DEFAULT_MAX_RETRIES
