@@ -145,3 +145,26 @@ class TestThreadSafety:
         assert results[4] == "sk_thread_4"
         # Main thread key should remain untouched
         assert shade.api_key == "sk_main_thread"
+
+    def test_reset_invalidates_thread_local_overrides_across_reused_workers(self):
+        worker_results = {}
+
+        def set_override(key: str):
+            shade.api_key = key
+            return shade.api_key
+
+        def read_override():
+            return shade.api_key
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Step 1: Set thread-local override in worker thread
+            future_set = executor.submit(set_override, "sk_worker_override")
+            assert future_set.result() == "sk_worker_override"
+
+            # Step 2: Reset config from main thread (e.g. between tests)
+            config.reset()
+
+            # Step 3: Worker thread re-used; check that stale thread-local override is invalidated
+            future_read = executor.submit(read_override)
+            assert future_read.result() is None
+

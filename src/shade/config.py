@@ -25,6 +25,7 @@ class Config:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._local = threading.local()
+        self._generation: int = 0
         self._global_api_key: Optional[str] = None
         self._global_api_base: Optional[str] = None
         self._global_environment: Environment = Environment.SANDBOX
@@ -35,99 +36,122 @@ class Config:
     def reset(self) -> None:
         """Reset configuration to defaults (useful for test teardowns)."""
         with self._lock:
+            self._generation += 1
             self._global_api_key = None
             self._global_api_base = None
             self._global_environment = Environment.SANDBOX
             self._global_timeout = DEFAULT_TIMEOUT
             self._global_max_retries = DEFAULT_MAX_RETRIES
             self._global_debug = False
-        if hasattr(self._local, "__dict__"):
+        self._local.__dict__.clear()
+
+    def _get_local(self, attr_name: str) -> tuple[bool, any]:
+        with self._lock:
+            current_gen = self._generation
+        if getattr(self._local, "generation", None) == current_gen:
+            if attr_name in self._local.__dict__:
+                return True, getattr(self._local, attr_name)
+        return False, None
+
+    def _set_local(self, attr_name: str, value: any) -> None:
+        with self._lock:
+            current_gen = self._generation
+        if getattr(self._local, "generation", None) != current_gen:
             self._local.__dict__.clear()
+            self._local.generation = current_gen
+        setattr(self._local, attr_name, value)
 
     @property
     def api_key(self) -> Optional[str]:
-        if hasattr(self._local, "api_key"):
-            return self._local.api_key
+        has_local, val = self._get_local("api_key")
+        if has_local:
+            return val
         with self._lock:
             return self._global_api_key
 
     @api_key.setter
     def api_key(self, value: Optional[str]) -> None:
-        self._local.api_key = value
+        self._set_local("api_key", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_api_key = value
 
     @property
     def api_base(self) -> Optional[str]:
-        if hasattr(self._local, "api_base"):
-            return self._local.api_base
+        has_local, val = self._get_local("api_base")
+        if has_local:
+            return val
         with self._lock:
             return self._global_api_base
 
     @api_base.setter
     def api_base(self, value: Optional[str]) -> None:
-        self._local.api_base = value
+        self._set_local("api_base", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_api_base = value
 
     @property
     def environment(self) -> Environment:
-        if hasattr(self._local, "environment"):
-            return self._local.environment
+        has_local, val = self._get_local("environment")
+        if has_local:
+            return val
         with self._lock:
             return self._global_environment
 
     @environment.setter
     def environment(self, value: str | Environment) -> None:
         parsed = self.parse_environment(value)
-        self._local.environment = parsed
+        self._set_local("environment", parsed)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_environment = parsed
 
     @property
     def timeout(self) -> float:
-        if hasattr(self._local, "timeout"):
-            return self._local.timeout
+        has_local, val = self._get_local("timeout")
+        if has_local:
+            return val
         with self._lock:
             return self._global_timeout
 
     @timeout.setter
     def timeout(self, value: float) -> None:
-        self._local.timeout = value
+        self._set_local("timeout", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_timeout = value
 
     @property
     def max_retries(self) -> int:
-        if hasattr(self._local, "max_retries"):
-            return self._local.max_retries
+        has_local, val = self._get_local("max_retries")
+        if has_local:
+            return val
         with self._lock:
             return self._global_max_retries
 
     @max_retries.setter
     def max_retries(self, value: int) -> None:
-        self._local.max_retries = value
+        self._set_local("max_retries", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_max_retries = value
 
     @property
     def debug(self) -> bool:
-        if hasattr(self._local, "debug"):
-            return self._local.debug
+        has_local, val = self._get_local("debug")
+        if has_local:
+            return val
         with self._lock:
             return self._global_debug
 
     @debug.setter
     def debug(self, value: bool) -> None:
-        self._local.debug = value
+        self._set_local("debug", value)
         if threading.current_thread() is threading.main_thread():
             with self._lock:
                 self._global_debug = value
+
 
     def parse_environment(self, value: str | Environment) -> Environment:
         if isinstance(value, Environment):
@@ -253,4 +277,4 @@ def get_config(
         timeout=resolved_timeout,
         max_retries=resolved_max_retries,
         base_url=base_url,
-    )
+    )
