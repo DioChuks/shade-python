@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
-from .config import DEFAULT_MAX_RETRIES, validate_client_settings
+from .config import DEFAULT_MAX_RETRIES, validate_client_settings, get_config
 from . import config as _config
 from .errors import (
     AuthenticationError,
@@ -399,38 +399,64 @@ class SyncHTTPClient:
 
     Parameters
     ----------
-    base_url : str
+    base_url : str, optional
         Base URL (no trailing slash).
-    api_key : str
+    api_key : str, optional
         Bearer token sent as ``Authorization: Bearer <api_key>``.
-    max_retries : int
+    max_retries : int, optional
         How many times to retry on 429 before raising ``RateLimitError``.
         Set to ``0`` to disable auto-retry.
-    timeout : float
+    timeout : float, optional
         Socket timeout in seconds.
     """
 
     def __init__(
         self,
-        base_url: str,
-        api_key: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         max_retries: Optional[int] = None,
         timeout: Optional[float] = None,
     ) -> None:
-        _validate_base_url(base_url)
-        self.base_url = base_url.rstrip("/")
+        if base_url:
+            _validate_base_url(base_url)
+            self._base_url: Optional[str] = base_url.rstrip("/")
+        else:
+            self._base_url = None
         self.api_key = api_key
-        self.max_retries = _config.max_retries if max_retries is None else max_retries
-        self.timeout = _config.timeout if timeout is None else timeout
-        validate_client_settings(self.timeout, self.max_retries)
+        self._max_retries = max_retries
+        self._timeout = timeout
+        if timeout is not None or max_retries is not None:
+            validate_client_settings(
+                timeout if timeout is not None else _config.timeout,
+                max_retries if max_retries is not None else _config.max_retries,
+            )
+
+    @property
+    def max_retries(self) -> int:
+        return self._max_retries if self._max_retries is not None else _config.max_retries
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout if self._timeout is not None else _config.timeout
+
+    @property
+    def base_url(self) -> str:
+        if self._base_url:
+            return self._base_url
+        return _config.api_base or _config.environment.base_url.rstrip("/")
 
     def _build_request(
-        self, method: str, path: str, payload: Optional[Dict[str, Any]]
+        self,
+        method: str,
+        path: str,
+        payload: Optional[Dict[str, Any]],
+        resolved_api_key: str,
+        resolved_base_url: str,
     ) -> urllib.request.Request:
-        url = f"{self.base_url}/{path.lstrip('/')}"
+        url = f"{resolved_base_url}/{path.lstrip('/')}"
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         req = urllib.request.Request(url, data=data, method=method.upper())
-        req.add_header("Authorization", f"Bearer {self.api_key}")
+        req.add_header("Authorization", f"Bearer {resolved_api_key}")
         req.add_header("Content-Type", "application/json")
         req.add_header("Accept", "application/json")
         return req
@@ -455,15 +481,23 @@ class SyncHTTPClient:
             If 429 and ``max_retries`` is exhausted.
         HTTPError
             For other non-2xx responses.
+        AuthenticationError
+            If api_key is missing/None.
         """
+        cfg = get_config(
+            api_key=self.api_key,
+            api_base=self._base_url,
+            timeout=self._timeout,
+            max_retries=self._max_retries,
+        )
         attempt = 0
         while True:
-            req = self._build_request(method, path, payload)
+            req = self._build_request(method, path, payload, cfg.api_key, cfg.base_url)
             try:
                 status, headers, body = self._execute(req)
             except Exception as exc:
                 if _is_retryable_transport_error(exc):
-                    if attempt >= self.max_retries:
+                    if attempt >= cfg.max_retries:
                         raise NetworkError(
                             "Request failed after exhausting retries",
                             status_code=None,
@@ -472,14 +506,14 @@ class SyncHTTPClient:
                     logger.debug(
                         "Retrying request after transient failure (attempt %s/%s) in %.3fs",
                         attempt + 1,
-                        self.max_retries + 1,
+                        cfg.max_retries + 1,
                         delay,
                     )
                     time.sleep(delay)
                     attempt += 1
                     continue
                 raise
-            wait = _raise_for_status(status, headers, body, attempt, self.max_retries)
+            wait = _raise_for_status(status, headers, body, attempt, cfg.max_retries)
             if wait is None:
                 return json.loads(body) if body else {}
             time.sleep(wait)
@@ -497,6 +531,7 @@ class SyncHTTPClient:
             return exc.code, exc.headers, body
 
 
+
 # ---------------------------------------------------------------------------
 # Asynchronous client
 # ---------------------------------------------------------------------------
@@ -512,17 +547,38 @@ class AsyncHTTPClient:
 
     def __init__(
         self,
-        base_url: str,
-        api_key: str,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         max_retries: Optional[int] = None,
         timeout: Optional[float] = None,
     ) -> None:
-        _validate_base_url(base_url)
-        self.base_url = base_url.rstrip("/")
+        if base_url:
+            _validate_base_url(base_url)
+            self._base_url: Optional[str] = base_url.rstrip("/")
+        else:
+            self._base_url = None
         self.api_key = api_key
-        self.max_retries = _config.max_retries if max_retries is None else max_retries
-        self.timeout = _config.timeout if timeout is None else timeout
-        validate_client_settings(self.timeout, self.max_retries)
+        self._max_retries = max_retries
+        self._timeout = timeout
+        if timeout is not None or max_retries is not None:
+            validate_client_settings(
+                timeout if timeout is not None else _config.timeout,
+                max_retries if max_retries is not None else _config.max_retries,
+            )
+
+    @property
+    def max_retries(self) -> int:
+        return self._max_retries if self._max_retries is not None else _config.max_retries
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout if self._timeout is not None else _config.timeout
+
+    @property
+    def base_url(self) -> str:
+        if self._base_url:
+            return self._base_url
+        return _config.api_base or _config.environment.base_url.rstrip("/")
 
     async def request(
         self,
@@ -542,6 +598,8 @@ class AsyncHTTPClient:
         ------
         RateLimitError, HTTPError
             Same semantics as ``SyncHTTPClient.request``.
+        AuthenticationError
+            If api_key is missing/None.
         ImportError
             If ``aiohttp`` is not installed.
         """
@@ -555,21 +613,27 @@ class AsyncHTTPClient:
                 "Install it with: pip install aiohttp"
             ) from exc
 
-        url_base = self.base_url
+        cfg = get_config(
+            api_key=self.api_key,
+            api_base=self._base_url,
+            timeout=self._timeout,
+            max_retries=self._max_retries,
+        )
+
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
         connector = aiohttp.TCPConnector()
-        timeout_cfg = aiohttp.ClientTimeout(total=self.timeout)
+        timeout_cfg = aiohttp.ClientTimeout(total=cfg.timeout)
 
         attempt = 0
         async with aiohttp.ClientSession(
             connector=connector, timeout=timeout_cfg
         ) as session:
             while True:
-                url = f"{url_base}/{path.lstrip('/')}"
+                url = f"{cfg.base_url}/{path.lstrip('/')}"
                 try:
                     resp = await session.request(
                         method.upper(),
@@ -580,7 +644,7 @@ class AsyncHTTPClient:
                     body = await resp.read()
                 except Exception as exc:
                     if _is_retryable_transport_error(exc):
-                        if attempt >= self.max_retries:
+                        if attempt >= cfg.max_retries:
                             raise NetworkError(
                                 "Request failed after exhausting retries",
                                 status_code=None,
@@ -589,7 +653,7 @@ class AsyncHTTPClient:
                         logger.debug(
                             "Retrying request after transient failure (attempt %s/%s) in %.3fs",
                             attempt + 1,
-                            self.max_retries + 1,
+                            cfg.max_retries + 1,
                             delay,
                         )
                         await asyncio.sleep(delay)
@@ -597,9 +661,9 @@ class AsyncHTTPClient:
                         continue
                     raise
                 wait = _raise_for_status(
-                    resp.status, resp.headers, body, attempt, self.max_retries
+                    resp.status, resp.headers, body, attempt, cfg.max_retries
                 )
                 if wait is None:
                     return json.loads(body) if body else {}
                 await asyncio.sleep(wait)
-                attempt += 1
+                attempt += 1
