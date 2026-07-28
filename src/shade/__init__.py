@@ -3,7 +3,7 @@ from types import ModuleType
 from typing import Optional
 
 from .client import ShadeClient
-from .config import config, Environment
+from .config import config, Environment, get_config
 from .gateway import Gateway
 from .http import AsyncHTTPClient, SyncHTTPClient
 from .errors import (
@@ -44,6 +44,8 @@ __all__ = [
     "Transfer",
     "TransferStatus",
     "config",
+    "get_config",
+    "api_key",
     "api_base",
     "environment",
     "max_retries",
@@ -52,6 +54,16 @@ __all__ = [
 
 class _ShadeModule(ModuleType):
     """Module subclass that exposes config-backed attributes on the shade package."""
+
+    @property
+    def api_key(self) -> Optional[str]:
+        from . import config as _config
+        return _config.api_key
+
+    @api_key.setter
+    def api_key(self, value: Optional[str]) -> None:
+        from . import config as _config
+        _config.api_key = value
 
     @property
     def api_base(self) -> Optional[str]:
@@ -95,3 +107,4 @@ class _ShadeModule(ModuleType):
 
 
 sys.modules[__name__].__class__ = _ShadeModule
+
