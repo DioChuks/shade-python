@@ -16,7 +16,16 @@ from .errors import (
     ShadeError,
     SignatureVerificationError,
 )
-from .models import AssetBalance, Balance, Merchant, ShadeObject, Transfer, TransferStatus
+from .models import (
+    AssetBalance,
+    Balance,
+    Merchant,
+    ShadeObject,
+    Transfer,
+    TransferStatus,
+    WebhookEvent,
+    WebhookEventType,
+)
 
 __version__ = "0.1.0"
 
@@ -43,6 +52,8 @@ __all__ = [
     "SyncHTTPClient",
     "Transfer",
     "TransferStatus",
+    "WebhookEvent",
+    "WebhookEventType",
     "config",
     "api_base",
     "environment",

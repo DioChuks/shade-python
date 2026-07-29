@@ -5,6 +5,7 @@ from .balance import AssetBalance, Balance
 from .base import ShadeObject
 from .merchant import Merchant
 from .transfer import Transfer, TransferStatus
+from .webhook import WebhookEvent, WebhookEventType
 
 __all__ = [
     "AssetBalance",
@@ -13,4 +14,6 @@ __all__ = [
     "ShadeObject",
     "Transfer",
     "TransferStatus",
+    "WebhookEvent",
+    "WebhookEventType",
 ]
