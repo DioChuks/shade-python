@@ -28,12 +28,7 @@ class BaseResource:
 
     @property
     def client(self) -> ShadeClient:
-        """The client backing this resource.
-
-        Raises:
-            AuthenticationError: If no client was supplied and no global
-                ``shade.api_key`` has been set.
-        """
+        """The client backing this resource."""
         if self._explicit_client is not None:
             return self._explicit_client
         return default_client()

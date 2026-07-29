@@ -6,7 +6,7 @@ Acceptance criteria covered:
 * Resource calls use their client's credentials, not the global config.
 * Two clients with different keys coexist without interfering.
 * ShadeClient.from_env() reads SHADE_API_KEY from the environment.
-* A missing api_key with no global key set raises AuthenticationError.
+* Requesting with no api_key and no global key set raises AuthenticationError.
 """
 from __future__ import annotations
 
@@ -32,23 +32,10 @@ def _reset_global_config(monkeypatch):
     """Isolate every test from global config and environment leakage."""
     monkeypatch.delenv(API_KEY_ENV_VAR, raising=False)
     monkeypatch.delenv(ENVIRONMENT_ENV_VAR, raising=False)
-    original = (
-        _config.api_key,
-        _config.api_base,
-        _config.environment,
-        _config.timeout,
-        _config.max_retries,
-    )
-    _config.api_key = None
+    _config.reset()
     reset_default_client()
     yield
-    (
-        _config.api_key,
-        _config.api_base,
-        _config.environment,
-        _config.timeout,
-        _config.max_retries,
-    ) = original
+    _config.reset()
     reset_default_client()
 
 
@@ -117,15 +104,24 @@ class TestIsolatedClient:
         assert client.timeout == 3.0
         assert _config.api_key == "sk_live_global"
 
-    def test_later_global_changes_do_not_mutate_an_existing_client(self):
+    def test_instance_settings_survive_later_global_changes(self):
+        client = ShadeClient(api_key="sk_test_instance", timeout=3.0)
+
+        _config.api_key = "sk_live_global"
+        _config.timeout = 99.0
+
+        assert client.api_key == "sk_test_instance"
+        assert client.timeout == 3.0
+
+    def test_unset_settings_follow_later_global_changes(self):
         _config.api_key = "sk_live_first"
         client = ShadeClient()
 
         _config.api_key = "sk_live_second"
         _config.timeout = 99.0
 
-        assert client.api_key == "sk_live_first"
-        assert client.timeout != 99.0
+        assert client.api_key == "sk_live_second"
+        assert client.timeout == 99.0
 
     def test_repr_masks_the_api_key(self):
         client = ShadeClient(api_key="sk_test_secret_1234")
@@ -217,8 +213,8 @@ class TestResourceClientBinding:
     def test_resource_without_client_or_global_key_raises(self):
         payments = Payments()
 
-        with pytest.raises(AuthenticationError):
-            payments.client
+        with pytest.raises(AuthenticationError, match="No API key provided"):
+            payments.retrieve("pay_1")
 
     def test_repr_distinguishes_global_from_explicit_clients(self):
         assert repr(Payments()) == "<Payments client=global>"
@@ -237,19 +233,17 @@ class TestDefaultClient:
 
         assert default_client() is default_client()
 
-    def test_is_rebuilt_when_a_global_setting_changes(self):
+    def test_follows_global_setting_changes(self):
         _config.api_key = "sk_live_first"
-        first = default_client()
+        client = default_client()
 
         _config.api_key = "sk_live_second"
-        second = default_client()
 
-        assert second is not first
-        assert second.api_key == "sk_live_second"
+        assert client.api_key == "sk_live_second"
 
-    def test_raises_without_a_global_key(self):
-        with pytest.raises(AuthenticationError):
-            default_client()
+    def test_requests_raise_without_a_global_key(self):
+        with pytest.raises(AuthenticationError, match="No API key provided"):
+            default_client().request("GET", "/payments")
 
 
 # ---------------------------------------------------------------------------
@@ -301,15 +295,14 @@ class TestFromEnv:
 
         assert ShadeClient.from_env().api_key == "sk_live_global"
 
-    def test_raises_when_neither_env_var_nor_global_key_is_set(self):
-        with pytest.raises(AuthenticationError):
-            ShadeClient.from_env()
+    def test_requests_raise_when_neither_env_var_nor_global_key_is_set(self):
+        with pytest.raises(AuthenticationError, match="No API key provided"):
+            ShadeClient.from_env().request("GET", "/payments")
 
     def test_empty_env_var_is_treated_as_absent(self, monkeypatch):
         monkeypatch.setenv(API_KEY_ENV_VAR, "")
 
-        with pytest.raises(AuthenticationError):
-            ShadeClient.from_env()
+        assert ShadeClient.from_env().api_key is None
 
 
 # ---------------------------------------------------------------------------
@@ -319,15 +312,15 @@ class TestFromEnv:
 class TestMissingApiKey:
     def test_raises_authentication_error_when_no_key_anywhere(self):
         with pytest.raises(AuthenticationError, match="No API key provided"):
-            ShadeClient()
+            ShadeClient().request("GET", "/payments")
 
     def test_empty_api_key_raises_authentication_error(self):
-        with pytest.raises(AuthenticationError):
-            ShadeClient(api_key="")
+        with pytest.raises(AuthenticationError, match="No API key provided"):
+            ShadeClient(api_key="").request("GET", "/payments")
 
     def test_error_names_the_ways_to_supply_a_key(self):
         with pytest.raises(AuthenticationError) as excinfo:
-            ShadeClient()
+            ShadeClient().request("GET", "/payments")
 
         message = str(excinfo.value)
         assert "api_key=" in message
@@ -335,8 +328,8 @@ class TestMissingApiKey:
         assert API_KEY_ENV_VAR in message
 
     def test_gateway_shares_the_same_requirement(self):
-        with pytest.raises(AuthenticationError):
-            Gateway()
+        with pytest.raises(AuthenticationError, match="No API key provided"):
+            Gateway().process_payment(10.0, "USD")
 
 
 # ---------------------------------------------------------------------------

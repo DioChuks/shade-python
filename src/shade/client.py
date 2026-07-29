@@ -4,7 +4,8 @@ Per-instance SDK configuration.
 ``ShadeClient`` binds a set of credentials and connection settings to a single
 object, so an application acting on behalf of several merchants can hold one
 client per tenant instead of mutating the global ``shade`` module config.
-Anything left unset falls back to the global config at construction time.
+Anything left unset falls back to the global config, resolved per request so a
+client on the defaults follows later changes to ``shade.api_key`` and friends.
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ import httpx
 
 from .config import Environment, validate_client_settings
 from .config import config as _config
-from .errors import AuthenticationError
 from .http import AsyncHTTPClient, HTTPXTransport, SyncHTTPClient
 
 API_KEY_ENV_VAR = "SHADE_API_KEY"
@@ -32,9 +32,9 @@ class ShadeClient:
         globex = ShadeClient(api_key="sk_live_globex")
 
     Every parameter falls back to the matching global setting
-    (``shade.api_key``, ``shade.environment``, …) when omitted, and the fallback
-    is resolved once at construction — later changes to the global config do not
-    retroactively alter an existing client.
+    (``shade.api_key``, ``shade.environment``, …) when omitted. Explicit
+    arguments are pinned to the instance; omitted ones track the global config,
+    which is read at request time rather than captured at construction.
 
     Parameters
     ----------
@@ -48,13 +48,13 @@ class ShadeClient:
         self-hosted backend). Takes precedence over the module-level
         ``shade.api_base`` and the URL derived from ``environment``. Trailing
         slashes are trimmed.
-    timeout : float, optional
-        Per-request socket timeout in seconds. Defaults to ``shade.timeout``.
+    base_url : str
+        Deprecated. Prefer ``api_base``.
     max_retries : int, optional
         Automatic retries on HTTP 429 and transient failures. Defaults to
         ``shade.max_retries``. Set to ``0`` to disable auto-retry.
-    base_url : str
-        Deprecated. Prefer ``api_base``.
+    timeout : float, optional
+        Per-request socket timeout in seconds. Defaults to ``shade.timeout``.
     debug : bool
         Log requests and responses for this client. The global
         ``shade.config.debug`` enables logging regardless of this flag.
@@ -64,8 +64,6 @@ class ShadeClient:
 
     Raises
     ------
-    AuthenticationError
-        If no API key is given and no global ``shade.api_key`` is set.
     ValueError
         If ``timeout`` or ``max_retries`` is out of range, or ``environment``
         is not a recognised value.
@@ -76,50 +74,46 @@ class ShadeClient:
         api_key: Optional[str] = None,
         environment: Optional[Environment | str] = None,
         api_base: Optional[str] = None,
-        timeout: Optional[float] = None,
-        max_retries: Optional[int] = None,
         base_url: str = "",
+        max_retries: Optional[int] = None,
+        timeout: Optional[float] = None,
         debug: bool = False,
         http_client: Optional[httpx.Client] = None,
     ) -> None:
-        resolved_api_key = api_key or _config.api_key
-        if not resolved_api_key:
-            raise AuthenticationError(
-                "No API key provided. Pass api_key= to ShadeClient, set "
-                f"shade.api_key, or set the {API_KEY_ENV_VAR} environment variable."
-            )
-        self.api_key = resolved_api_key
-
-        if environment is not None:
-            self.environment = _config.parse_environment(environment)
-        else:
-            self.environment = _config.environment
-
-        self.max_retries = _config.max_retries if max_retries is None else max_retries
-        self.timeout = _config.timeout if timeout is None else timeout
-        validate_client_settings(self.timeout, self.max_retries)
-
-        # Resolution order: explicit api_base > module-level shade.api_base
-        # > legacy base_url > environment URL
-        resolved = api_base or _config.api_base or base_url or self.environment.base_url
-        self._base_url = resolved.rstrip("/")
+        self._api_key = api_key
+        self._environment = (
+            _config.parse_environment(environment) if environment is not None else None
+        )
+        api_base = api_base or (base_url if base_url else None)
+        self._api_base = api_base.rstrip("/") if api_base else None
+        self._timeout = timeout
+        self._max_retries = max_retries
         self.debug = debug
 
+        if timeout is not None or max_retries is not None:
+            validate_client_settings(
+                timeout if timeout is not None else _config.timeout,
+                max_retries if max_retries is not None else _config.max_retries,
+            )
+
         self._http = SyncHTTPClient(
-            base_url=self._base_url,
-            api_key=self.api_key,
-            max_retries=self.max_retries,
-            timeout=self.timeout,
+            base_url=self._api_base,
+            api_key=self._api_key,
+            environment=self._environment,
+            max_retries=self._max_retries,
+            timeout=self._timeout,
         )
         self._async_http = AsyncHTTPClient(
-            base_url=self._base_url,
-            api_key=self.api_key,
-            max_retries=self.max_retries,
-            timeout=self.timeout,
+            base_url=self._api_base,
+            api_key=self._api_key,
+            environment=self._environment,
+            max_retries=self._max_retries,
+            timeout=self._timeout,
         )
         self._client = HTTPXTransport(
-            api_key=self.api_key,
-            base_url=self._base_url,
+            api_key=self._api_key,
+            base_url=self._api_base,
+            environment=self._environment,
             debug=debug,
             http_client=http_client,
         )
@@ -130,7 +124,8 @@ class ShadeClient:
 
         Either variable may be absent, in which case the usual global-config
         fallback applies — so a missing ``SHADE_API_KEY`` with no
-        ``shade.api_key`` set raises :class:`~shade.errors.AuthenticationError`.
+        ``shade.api_key`` set leaves the client without credentials, and its
+        requests raise :class:`~shade.errors.AuthenticationError`.
 
         Any keyword argument overrides the corresponding environment variable,
         letting callers take the key from the environment while setting the rest
@@ -149,8 +144,49 @@ class ShadeClient:
         return cls(**env_kwargs)
 
     @property
+    def api_key(self) -> Optional[str]:
+        return self._api_key if self._api_key is not None else _config.api_key
+
+    @api_key.setter
+    def api_key(self, value: Optional[str]) -> None:
+        self._api_key = value
+        self._http.api_key = value
+        self._async_http.api_key = value
+        self._client.api_key = value
+
+    @property
+    def environment(self) -> Environment:
+        if self._environment is not None:
+            return self._environment
+        return _config.environment
+
+    @environment.setter
+    def environment(self, value: str | Environment) -> None:
+        parsed = _config.parse_environment(value)
+        self._environment = parsed
+        self._http.environment = parsed
+        self._async_http.environment = parsed
+        self._client.environment = parsed
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout if self._timeout is not None else _config.timeout
+
+    @property
+    def max_retries(self) -> int:
+        return self._max_retries if self._max_retries is not None else _config.max_retries
+
+    @property
+    def _base_url(self) -> str:
+        if self._api_base:
+            return self._api_base
+        if _config.api_base:
+            return _config.api_base.rstrip("/")
+        return self.environment.base_url.rstrip("/")
+
+    @property
     def api_base(self) -> str:
-        """The resolved API base URL this client sends requests to."""
+        """The API base URL this client currently sends requests to."""
         return self._base_url
 
     def close(self) -> None:
@@ -187,45 +223,34 @@ class ShadeClient:
         )
 
 
-def _mask_api_key(api_key: str) -> str:
+def _mask_api_key(api_key: Optional[str]) -> str:
     """Show only the last four characters of a key, for use in reprs."""
+    if not api_key:
+        return "unset"
     if len(api_key) <= 4:
         return "****"
     return "*" * (len(api_key) - 4) + api_key[-4:]
 
 
 _default_client: Optional[ShadeClient] = None
-_default_client_settings: Optional[tuple] = None
 
 
 def default_client() -> ShadeClient:
-    """Return the shared client built from the global ``shade`` config.
+    """Return the shared client backed by the global ``shade`` config.
 
     Resources fall back to this when constructed without an explicit
-    ``client=``. The instance is cached, but rebuilt whenever a global setting
-    changes, so assigning ``shade.api_key`` after the first call still takes
-    effect.
-
-    Raises:
-        AuthenticationError: If no global ``shade.api_key`` has been set.
+    ``client=``. It pins no settings of its own, so every global change —
+    including a ``shade.api_key`` assigned after the first call — is picked up
+    on the next request.
     """
-    global _default_client, _default_client_settings
+    global _default_client
 
-    settings = (
-        _config.api_key,
-        _config.environment,
-        _config.api_base,
-        _config.timeout,
-        _config.max_retries,
-    )
-    if _default_client is None or _default_client_settings != settings:
+    if _default_client is None:
         _default_client = ShadeClient()
-        _default_client_settings = settings
     return _default_client
 
 
 def reset_default_client() -> None:
     """Drop the cached global client. Primarily useful in tests."""
-    global _default_client, _default_client_settings
+    global _default_client
     _default_client = None
-    _default_client_settings = None

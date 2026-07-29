@@ -25,11 +25,10 @@ from shade.http import SyncHTTPClient
 
 @pytest.fixture(autouse=True)
 def _reset_client_settings():
-    original_timeout = _config.timeout
-    original_max_retries = _config.max_retries
+    _config.reset()
     yield
-    _config.timeout = original_timeout
-    _config.max_retries = original_max_retries
+    _config.reset()
+
 
 
 # ---------------------------------------------------------------------------

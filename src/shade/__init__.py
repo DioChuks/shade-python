@@ -3,7 +3,7 @@ from types import ModuleType
 from typing import Optional
 
 from .client import ShadeClient, default_client, reset_default_client
-from .config import config, Environment
+from .config import config, Environment, get_config
 from .gateway import Gateway
 from .http import AsyncHTTPClient, SyncHTTPClient
 from .resources import BaseResource
@@ -16,8 +16,19 @@ from .errors import (
     RateLimitError,
     ShadeError,
     SignatureVerificationError,
+    StellarError,
+    wrap_stellar_errors,
 )
-from .models import AssetBalance, Balance, Merchant, ShadeObject, Transfer, TransferStatus
+from .models import (
+    AssetBalance,
+    Balance,
+    Merchant,
+    ShadeObject,
+    Transfer,
+    TransferStatus,
+    WebhookEvent,
+    WebhookEventType,
+)
 
 __version__ = "0.1.0"
 
@@ -39,10 +50,14 @@ __all__ = [
     "ShadeError",
     "SignatureVerificationError",
     "ShadeObject",
+    "StellarError",
     "SyncHTTPClient",
     "Transfer",
     "TransferStatus",
+    "WebhookEvent",
+    "WebhookEventType",
     "config",
+    "get_config",
     "api_base",
     "api_key",
     "default_client",
@@ -50,6 +65,7 @@ __all__ = [
     "max_retries",
     "reset_default_client",
     "timeout",
+    "wrap_stellar_errors",
 ]
 
 class _ShadeModule(ModuleType):
@@ -107,3 +123,4 @@ class _ShadeModule(ModuleType):
 
 
 sys.modules[__name__].__class__ = _ShadeModule
+
