@@ -44,9 +44,9 @@ def test_data_stays_a_raw_dict():
     assert event.data["status"] == "completed"
 
 
-def test_data_accepts_non_dict_payloads_unchanged():
-    event = WebhookEvent.from_dict(_api_response(data=["a", "b"]))
-    assert event.data == ["a", "b"]
+def test_non_dict_data_raises():
+    with pytest.raises(InvalidRequestError):
+        WebhookEvent.from_dict(_api_response(data=["a", "b"]))
 
 
 def test_payload_is_not_mutated():
@@ -88,9 +88,9 @@ def test_livemode_reflects_payload(livemode, expected):
     assert event.livemode is expected
 
 
-def test_livemode_coerced_from_json_falsy_value():
-    event = WebhookEvent.from_dict(_api_response(livemode="false"))
-    assert event.livemode is False
+def test_livemode_string_value_raises():
+    with pytest.raises(InvalidRequestError):
+        WebhookEvent.from_dict(_api_response(livemode="false"))
 
 
 @pytest.mark.parametrize("field", ["id", "type", "data", "createdAt", "livemode"])

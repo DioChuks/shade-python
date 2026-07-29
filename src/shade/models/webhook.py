@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, StrictBool
 
 from .base import ShadeObject
 
@@ -83,6 +83,6 @@ class WebhookEvent(ShadeObject):
 
     id: str
     type: str
-    data: Any
+    data: dict[str, Any]
     created_at: datetime = Field(alias="createdAt")
-    livemode: bool
+    livemode: StrictBool
