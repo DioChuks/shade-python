@@ -3,7 +3,7 @@ from typing import Any, Mapping, Optional
 import httpx
 
 from shade._debug import log_request, log_response
-from shade.config import config
+from shade.config import Environment, config, get_config
 
 
 class ShadeClient:
@@ -11,16 +11,25 @@ class ShadeClient:
 
     def __init__(
         self,
-        api_key: str,
-        base_url: str = "https://api.shadeprotocol.io",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        environment: Optional[Environment | str] = None,
         debug: bool = False,
         http_client: Optional[httpx.Client] = None,
     ):
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        self._base_url = base_url.rstrip("/") if base_url else None
+        self.environment = environment
         self.debug = debug
         self._http = http_client or httpx.Client()
         self._owns_http_client = http_client is None
+
+    @property
+    def base_url(self) -> str:
+        if self._base_url:
+            return self._base_url
+        env = config.parse_environment(self.environment) if self.environment is not None else config.environment
+        return config.api_base or env.base_url.rstrip("/")
 
     def close(self) -> None:
         if self._owns_http_client:
@@ -35,9 +44,6 @@ class ShadeClient:
     def _should_debug(self) -> bool:
         return self.debug or config.debug
 
-    def _default_headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}"}
-
     def request(
         self,
         method: str,
@@ -47,9 +53,15 @@ class ShadeClient:
         json: Any = None,
         content: Optional[bytes] = None,
     ) -> httpx.Response:
+        cfg = get_config(
+            api_key=self.api_key,
+            environment=self.environment,
+            api_base=self._base_url,
+        )
+
         normalized_path = path if path.startswith("/") else f"/{path}"
-        url = f"{self.base_url}{normalized_path}"
-        request_headers = {**self._default_headers(), **(headers or {})}
+        url = f"{cfg.base_url}{normalized_path}"
+        request_headers = {"Authorization": f"Bearer {cfg.api_key}", **(headers or {})}
 
         if self._should_debug():
             log_request(method, url, request_headers, content if content is not None else json)
@@ -66,3 +78,4 @@ class ShadeClient:
             log_response(response.status_code, response.headers, response.text)
 
         return response
+
