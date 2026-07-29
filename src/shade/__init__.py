@@ -17,6 +17,8 @@ from .errors import (
     SignatureVerificationError,
 )
 from .models import (
+    AssetBalance,
+    Balance,
     Merchant,
     ShadeObject,
     Transfer,
@@ -31,8 +33,10 @@ __version__ = "0.1.0"
 ShadeClient = Gateway
 
 __all__ = [
+    "AssetBalance",
     "AsyncHTTPClient",
     "AuthenticationError",
+    "Balance",
     "Environment",
     "Gateway",
     "HTTPError",
