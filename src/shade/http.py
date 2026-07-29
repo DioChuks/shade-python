@@ -412,12 +412,14 @@ class HTTPXTransport:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         environment: Optional[Environment | str] = None,
+        timeout: Optional[float] = None,
         debug: bool = False,
         http_client: Optional["httpx.Client"] = None,
     ) -> None:
         self.api_key = api_key
         self._base_url = base_url.rstrip("/") if base_url else None
         self.environment = environment
+        self._timeout = timeout
         self.debug = debug
         self._http = http_client or httpx.Client()
         self._owns_http_client = http_client is None
@@ -442,6 +444,7 @@ class HTTPXTransport:
             api_key=self.api_key,
             environment=self.environment,
             api_base=self._base_url,
+            timeout=self._timeout,
         )
 
         normalized_path = path if path.startswith("/") else f"/{path}"
@@ -457,6 +460,7 @@ class HTTPXTransport:
             headers=request_headers,
             json=json,
             content=content,
+            timeout=cfg.timeout,
         )
 
         if self._should_debug():

@@ -106,6 +106,23 @@ class TestPerClientSettings:
         assert client._http.timeout == 5.0
         assert client._http.max_retries == 1
 
+    def test_timeout_reaches_the_httpx_transport(self):
+        client = ShadeClient(api_key="test-key", timeout=5.0)
+
+        with patch.object(client._client._http, "request") as mock_request:
+            client.request("GET", "/payments")
+
+        assert mock_request.call_args.kwargs["timeout"] == 5.0
+
+    def test_module_level_timeout_reaches_the_httpx_transport(self):
+        shade.timeout = 7.0
+        client = ShadeClient(api_key="test-key")
+
+        with patch.object(client._client._http, "request") as mock_request:
+            client.request("GET", "/payments")
+
+        assert mock_request.call_args.kwargs["timeout"] == 7.0
+
     def test_invalid_timeout_on_client_raises(self):
         with pytest.raises(ValueError, match="timeout must be greater than 0"):
             ShadeClient(api_key="test-key", timeout=-1.0)

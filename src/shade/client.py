@@ -10,6 +10,7 @@ client on the defaults follows later changes to ``shade.api_key`` and friends.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Dict, Optional
 
 import httpx
@@ -114,6 +115,7 @@ class ShadeClient:
             api_key=self._api_key,
             base_url=self._api_base,
             environment=self._environment,
+            timeout=self._timeout,
             debug=debug,
             http_client=http_client,
         )
@@ -233,6 +235,7 @@ def _mask_api_key(api_key: Optional[str]) -> str:
 
 
 _default_client: Optional[ShadeClient] = None
+_default_client_lock = threading.Lock()
 
 
 def default_client() -> ShadeClient:
@@ -245,12 +248,17 @@ def default_client() -> ShadeClient:
     """
     global _default_client
 
-    if _default_client is None:
-        _default_client = ShadeClient()
-    return _default_client
+    with _default_client_lock:
+        if _default_client is None:
+            _default_client = ShadeClient()
+        return _default_client
 
 
 def reset_default_client() -> None:
     """Drop the cached global client. Primarily useful in tests."""
     global _default_client
-    _default_client = None
+
+    with _default_client_lock:
+        client, _default_client = _default_client, None
+    if client is not None:
+        client.close()
