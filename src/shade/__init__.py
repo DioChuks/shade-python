@@ -15,6 +15,8 @@ from .errors import (
     RateLimitError,
     ShadeError,
     SignatureVerificationError,
+    StellarError,
+    wrap_stellar_errors,
 )
 from .models import (
     AssetBalance,
@@ -49,6 +51,7 @@ __all__ = [
     "ShadeError",
     "SignatureVerificationError",
     "ShadeObject",
+    "StellarError",
     "SyncHTTPClient",
     "Transfer",
     "TransferStatus",
@@ -61,6 +64,7 @@ __all__ = [
     "environment",
     "max_retries",
     "timeout",
+    "wrap_stellar_errors",
 ]
 
 class _ShadeModule(ModuleType):
