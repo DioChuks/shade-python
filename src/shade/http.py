@@ -17,9 +17,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 
+from ._debug import log_request, log_response
 from .config import DEFAULT_MAX_RETRIES, Environment, config as _config, get_config, validate_client_settings
 
 
@@ -389,6 +390,83 @@ def _parse_response(response: "httpx.Response") -> Dict[str, Any]:
         status_code=status,
         response_body=body,
     )
+
+
+# ---------------------------------------------------------------------------
+# httpx-backed transport
+# ---------------------------------------------------------------------------
+
+class HTTPXTransport:
+    """httpx-backed transport returning raw responses, with debug logging.
+
+    Used by :class:`~shade.client.ShadeClient` for calls that need the whole
+    response (headers, streaming, non-JSON bodies) rather than a decoded body.
+    Credentials and the target host are resolved per request, so a client left
+    on the global defaults follows later changes to ``shade.api_key`` and
+    friends. Logging is enabled per-instance via ``debug`` or globally via
+    ``shade.config.debug``, and the ``Authorization`` header is masked either way.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        environment: Optional[Environment | str] = None,
+        timeout: Optional[float] = None,
+        debug: bool = False,
+        http_client: Optional["httpx.Client"] = None,
+    ) -> None:
+        self.api_key = api_key
+        self._base_url = base_url.rstrip("/") if base_url else None
+        self.environment = environment
+        self._timeout = timeout
+        self.debug = debug
+        self._http = http_client or httpx.Client()
+        self._owns_http_client = http_client is None
+
+    def close(self) -> None:
+        if self._owns_http_client:
+            self._http.close()
+
+    def _should_debug(self) -> bool:
+        return self.debug or _config.debug
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: Optional[Mapping[str, str]] = None,
+        json: Any = None,
+        content: Optional[bytes] = None,
+    ) -> "httpx.Response":
+        cfg = get_config(
+            api_key=self.api_key,
+            environment=self.environment,
+            api_base=self._base_url,
+            timeout=self._timeout,
+        )
+
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        url = f"{cfg.base_url}{normalized_path}"
+        request_headers = {"Authorization": f"Bearer {cfg.api_key}", **(headers or {})}
+
+        if self._should_debug():
+            log_request(method, url, request_headers, content if content is not None else json)
+
+        response = self._http.request(
+            method,
+            url,
+            headers=request_headers,
+            json=json,
+            content=content,
+            timeout=cfg.timeout,
+        )
+
+        if self._should_debug():
+            log_response(response.status_code, response.headers, response.text)
+
+        return response
 
 
 # ---------------------------------------------------------------------------

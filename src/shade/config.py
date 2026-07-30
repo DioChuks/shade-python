@@ -264,8 +264,8 @@ def get_config(
     resolved_api_key = api_key if api_key is not None else config.api_key
     if not resolved_api_key:
         raise AuthenticationError(
-            "No API key provided. Set your API key using 'shade.api_key = <API_KEY>' "
-            "or pass api_key to the client."
+            "No API key provided. Pass api_key= to ShadeClient, set "
+            "shade.api_key, or set the SHADE_API_KEY environment variable."
         )
 
     resolved_env = (
