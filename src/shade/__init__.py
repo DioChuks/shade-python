@@ -22,6 +22,8 @@ from .errors import (
 from .models import (
     AssetBalance,
     Balance,
+    Invoice,
+    InvoiceStatus,
     Merchant,
     ShadeObject,
     Transfer,
@@ -42,6 +44,8 @@ __all__ = [
     "Gateway",
     "HTTPError",
     "InvalidRequestError",
+    "Invoice",
+    "InvoiceStatus",
     "Merchant",
     "NetworkError",
     "NotFoundError",
