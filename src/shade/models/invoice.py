@@ -24,6 +24,35 @@ from .base import ShadeObject
 _U64_FIELDS = ("id", "merchant_id")
 _I128_FIELDS = ("amount", "amount_paid", "amount_refunded")
 _TIMESTAMP_FIELDS = ("date_created", "date_paid", "expires_at")
+_U64_MAX = 2**64 - 1
+
+
+def _validate_u64(field: str, value: object) -> int:
+    """Coerce ``value`` to a strictly valid on-chain ``u64``.
+
+    Booleans and floats are rejected outright rather than coerced, since a
+    silent bool->int or float->int cast could hide a malformed contract
+    payload. Everything else is coerced via ``int()`` and range-checked
+    against ``[0, 2**64 - 1]``.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer, not a boolean")
+    if isinstance(value, float):
+        raise ValueError(f"{field} must be an integer, not a float")
+    if isinstance(value, int):
+        result = value
+    else:
+        try:
+            result = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field} must be an integer, got {type(value).__name__}"
+            ) from exc
+    if not 0 <= result <= _U64_MAX:
+        raise ValueError(
+            f"{field} must be between 0 and {_U64_MAX} (u64 range), got {result}"
+        )
+    return result
 
 
 class InvoiceStatus(str, Enum):
@@ -110,14 +139,20 @@ class Invoice(ShadeObject):
         (or ``None``) pass through untouched, so re-running a previously
         converted dict — as happens on a ``to_dict()`` -> ``from_dict()``
         round trip — is a no-op rather than a double conversion.
+
+        Raises:
+            ValueError: If a ``u64`` or timestamp field is a boolean, a
+                float, negative, or exceeds ``2**64 - 1``.
+            OverflowError: If a timestamp is within the valid ``u64`` range
+                but too large for :class:`~datetime.datetime` to represent.
         """
         converted = dict(data)
 
         for field in _U64_FIELDS:
             value = converted.get(field)
-            if value is None or isinstance(value, bool) or isinstance(value, int):
+            if value is None:
                 continue
-            converted[field] = int(value)
+            converted[field] = _validate_u64(field, value)
 
         for field in _I128_FIELDS:
             value = converted.get(field)
@@ -129,9 +164,8 @@ class Invoice(ShadeObject):
             value = converted.get(field)
             if value is None or isinstance(value, datetime):
                 continue
-            if isinstance(value, bool):
-                raise ValueError(f"{field} must be a unix timestamp, not a boolean")
-            converted[field] = datetime.fromtimestamp(int(value), tz=timezone.utc)
+            timestamp = _validate_u64(field, value)
+            converted[field] = datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
         return converted
 
@@ -147,4 +181,10 @@ class Invoice(ShadeObject):
                 f"{cls.__name__}.from_dict() expects a dict, got "
                 f"{type(data).__name__}"
             )
-        return cls(**cls._from_contract_dict(data))
+        try:
+            converted = cls._from_contract_dict(data)
+        except (ValueError, OverflowError) as err:
+            field = str(err).split(" ", 1)[0]
+            param = field if field in (*_U64_FIELDS, *_TIMESTAMP_FIELDS) else None
+            raise InvalidRequestError(str(err), param=param) from err
+        return cls(**converted)

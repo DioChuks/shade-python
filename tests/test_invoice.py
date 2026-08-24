@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -11,8 +11,9 @@ TOKEN = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
 PAYER = Keypair.random().public_key
 
 NOW = int(datetime(2026, 8, 1, tzinfo=timezone.utc).timestamp())
-FUTURE = int(datetime(2026, 12, 1, tzinfo=timezone.utc).timestamp())
+FUTURE = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
 PAST = int(datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp())
+U64_MAX = 2**64 - 1
 
 
 def _contract_response(**overrides):
@@ -159,6 +160,46 @@ def test_boolean_merchant_id_is_rejected():
     with pytest.raises(InvalidRequestError) as exc_info:
         Invoice.from_dict(_contract_response(merchant_id=False))
     assert exc_info.value.param == "merchant_id"
+
+
+@pytest.mark.parametrize("field", ["id", "merchant_id"])
+def test_float_id_fields_are_rejected(field):
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(**{field: 1.9}))
+    assert exc_info.value.param == field
+
+
+@pytest.mark.parametrize("field", ["date_created", "date_paid", "expires_at"])
+def test_float_timestamp_fields_are_rejected(field):
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(**{field: 1.9}))
+    assert exc_info.value.param == field
+
+
+@pytest.mark.parametrize("field", ["id", "merchant_id"])
+def test_negative_id_fields_are_rejected(field):
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(**{field: -1}))
+    assert exc_info.value.param == field
+
+
+def test_negative_expires_at_is_rejected():
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(expires_at=-100))
+    assert exc_info.value.param == "expires_at"
+
+
+@pytest.mark.parametrize("field", ["id", "merchant_id"])
+def test_id_fields_exceeding_u64_max_are_rejected(field):
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(**{field: U64_MAX + 1}))
+    assert exc_info.value.param == field
+
+
+def test_expires_at_exceeding_u64_max_is_rejected():
+    with pytest.raises(InvalidRequestError) as exc_info:
+        Invoice.from_dict(_contract_response(expires_at=U64_MAX + 1))
+    assert exc_info.value.param == "expires_at"
 
 
 def test_from_dict_rejects_non_dict_input():
