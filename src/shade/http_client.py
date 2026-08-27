@@ -12,6 +12,7 @@ from .errors import NetworkError, ShadeError
 from .http import (
     _BASE_BACKOFF,
     _is_retryable_error,
+    _is_retryable_status,
     _parse_response,
     _parse_retry_after,
     _retry_delay,
@@ -117,6 +118,9 @@ class _SyncHTTPClient:
     def __exit__(self, *args: Any) -> None:
         self.close()
 
+    _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE", "PATCH"})
+    _IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+
     def _headers(
         self,
         api_key: str,
@@ -131,14 +135,43 @@ class _SyncHTTPClient:
             headers["Content-Type"] = "application/json"
         return headers
 
+    def _merge_headers(
+        self,
+        base: Mapping[str, str],
+        extra: Optional[Mapping[str, str]],
+    ) -> Dict[str, str]:
+        if not extra:
+            return dict(base)
+        merged = dict(base)
+        for k, v in extra.items():
+            if v is None:
+                merged.pop(k, None)
+            else:
+                merged[k] = v
+        return merged
+
+    def _has_idempotency_key(self, headers: Mapping[str, str]) -> bool:
+        for name in headers:
+            if name.lower() == self._IDEMPOTENCY_KEY_HEADER.lower():
+                return True
+        return False
+
     def request(
         self,
         method: str,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
         json: Any = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
         """Execute an HTTP request, retrying on 429/transient errors.
+
+        Non-idempotent methods (``POST`` without an ``Idempotency-Key``
+        header) are *not* automatically retried on 5xx or transport
+        failures to avoid the risk of duplicate side-effects such as
+        double-charging a payment. They are still retried on HTTP 429,
+        since a rate-limit response proves the server declined to process
+        the request and no side-effect occurred.
 
         Parameters
         ----------
@@ -152,6 +185,10 @@ class _SyncHTTPClient:
         json : Any, optional
             JSON-serializable request body. When provided the
             ``Content-Type: application/json`` header is added.
+        headers : Mapping[str, str], optional
+            Per-request headers merged on top of the defaults. Pass an
+            ``Idempotency-Key`` here to safely retry ``POST`` requests
+            the server guarantees to be idempotent.
 
         Returns
         -------
@@ -184,25 +221,35 @@ class _SyncHTTPClient:
             max_retries=self._max_retries,
         )
 
+        method_upper = method.upper()
         url = _build_full_url(cfg.base_url, path)
-        headers = self._headers(cfg.api_key, has_json_body=json is not None)
+        final_headers = self._merge_headers(
+            self._headers(cfg.api_key, has_json_body=json is not None),
+            headers,
+        )
+        safe_to_retry = (
+            method_upper in self._IDEMPOTENT_METHODS
+            or self._has_idempotency_key(final_headers)
+        )
 
         attempt = 0
         while True:
             if _config.debug:
-                log_request(method, url, headers, json if json is not None else params)
+                log_request(
+                    method_upper, url, final_headers, json if json is not None else params
+                )
 
             try:
                 response = self._client.request(
-                    method.upper(),
+                    method_upper,
                     url,
-                    headers=headers,
+                    headers=final_headers,
                     params=params,
                     json=json,
                     timeout=cfg.timeout,
                 )
             except Exception as exc:
-                if _is_retryable_error(exc):
+                if safe_to_retry and _is_retryable_error(exc):
                     if attempt >= cfg.max_retries:
                         raise NetworkError(
                             "Request failed after exhausting retries",
@@ -248,9 +295,13 @@ class _SyncHTTPClient:
             try:
                 return _parse_response(response)
             except Exception as exc:
+                retryable = _is_retryable_error(exc)
+                if not retryable and isinstance(exc, ShadeError):
+                    retryable = _is_retryable_status(exc.status_code or 0)
                 if (
-                    attempt < cfg.max_retries
-                    and _is_retryable_error(exc)
+                    safe_to_retry
+                    and attempt < cfg.max_retries
+                    and retryable
                 ):
                     delay = _retry_delay(attempt, _BASE_BACKOFF)
                     logger.debug(
@@ -270,29 +321,33 @@ class _SyncHTTPClient:
         self,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
-        return self.request("GET", path, params=params)
+        return self.request("GET", path, params=params, headers=headers)
 
     def post(
         self,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
         json: Any = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
-        return self.request("POST", path, params=params, json=json)
+        return self.request("POST", path, params=params, json=json, headers=headers)
 
     def patch(
         self,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
         json: Any = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
-        return self.request("PATCH", path, params=params, json=json)
+        return self.request("PATCH", path, params=params, json=json, headers=headers)
 
     def delete(
         self,
         path: str,
         params: Optional[Mapping[str, Any]] = None,
         json: Any = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
-        return self.request("DELETE", path, params=params, json=json)
+        return self.request("DELETE", path, params=params, json=json, headers=headers)

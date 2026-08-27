@@ -584,3 +584,262 @@ class TestPublicApiBoundary:
 
         assert isinstance(result, dict)
         assert not isinstance(result, httpx.Response)
+
+
+# ---------------------------------------------------------------------------
+# Idempotency-safe retry behaviour
+# ---------------------------------------------------------------------------
+
+
+def _call_counting_responses(
+    client: _SyncHTTPClient,
+    responses: List[httpx.Response],
+) -> int:
+    """Drive responses through the wrapper and return the number of calls made.
+
+    The last response in the list is expected to be a 2xx (or equivalent
+    success) so ``request()`` returns; otherwise the count is the number
+    of attempts before raising.
+    """
+    captured = _stub_httpx_client(client, list(responses))
+    try:
+        client.request(
+            responses[0].request.method if responses[0].request else "GET",
+            "/any",
+            json={},
+        )
+    except Exception:
+        pass
+    return len(captured)
+
+
+class TestIdempotencySafeRetry:
+    def test_get_5xx_is_retried(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(200, json_body={"ok": True}),
+            ],
+        )
+
+        result = client.get("/x")
+
+        assert result == {"ok": True}
+        assert len(captured) == 2
+
+    def test_post_5xx_is_not_retried(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(200, json_body={"should": "never-reach-this"}),
+            ],
+        )
+
+        with pytest.raises(NetworkError):
+            client.post("/payments", json={"amount": 10})
+
+        assert len(captured) == 1
+
+    def test_patch_5xx_is_retried(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(503, json_body={"error": {"message": "unavailable"}}),
+                _resp(200, json_body={"ok": True}),
+            ],
+        )
+
+        result = client.patch("/x", json={"a": 1})
+
+        assert result == {"ok": True}
+        assert len(captured) == 2
+
+    def test_delete_5xx_is_retried(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(504, json_body={"error": {"message": "timeout"}}),
+                _resp(204, text=""),
+            ],
+        )
+
+        result = client.delete("/x")
+
+        assert result == {}
+        assert len(captured) == 2
+
+    def test_post_5xx_is_retried_when_idempotency_key_present(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(200, json_body={"id": "p1"}),
+            ],
+        )
+
+        result = client.post(
+            "/payments",
+            json={"amount": 10},
+            headers={"Idempotency-Key": "unique-key-abc"},
+        )
+
+        assert result == {"id": "p1"}
+        assert len(captured) == 2
+
+    def test_post_429_is_always_retried(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(
+                    429,
+                    json_body={"error": {"message": "slow"}},
+                    headers={"Retry-After": "1"},
+                ),
+                _resp(200, json_body={"id": "p1"}),
+            ],
+        )
+
+        with patch("time.sleep"):
+            result = client.post("/payments", json={"amount": 10})
+
+        assert result == {"id": "p1"}
+        assert len(captured) == 2
+
+    def test_post_429_with_idempotency_key_still_works(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(
+                    429,
+                    json_body={"error": {"message": "slow"}},
+                    headers={"Retry-After": "1"},
+                ),
+                _resp(200, json_body={"id": "p1"}),
+            ],
+        )
+
+        with patch("time.sleep"):
+            result = client.post(
+                "/payments",
+                json={"amount": 10},
+                headers={"Idempotency-Key": "abc123"},
+            )
+
+        assert result == {"id": "p1"}
+        assert len(captured) == 2
+
+    def test_post_transport_error_is_not_retried(self):
+        client = _make_client()
+        call_count = {"n": 0}
+
+        def fake_request(*args, **kwargs):
+            call_count["n"] += 1
+            raise httpx.ConnectError("no route to host")
+
+        client._client.request = fake_request  # type: ignore[method-assign]
+
+        with pytest.raises(httpx.ConnectError):
+            client.post("/payments", json={"amount": 10})
+
+        assert call_count["n"] == 1
+
+    def test_post_transport_error_is_retried_with_idempotency_key(self):
+        client = _make_client()
+        captured: List[dict] = []
+
+        def fake_request(*args, **kwargs):
+            captured.append({"args": args, **kwargs})
+            if len(captured) == 1:
+                raise httpx.ConnectError("no route to host")
+            return httpx.Response(status_code=200, json={"id": "p1"})
+
+        client._client.request = fake_request  # type: ignore[method-assign]
+
+        with patch("time.sleep"):
+            result = client.post(
+                "/payments",
+                json={"amount": 10},
+                headers={"Idempotency-Key": "xyz"},
+            )
+
+        assert result == {"id": "p1"}
+        assert len(captured) == 2
+
+    def test_get_transport_error_is_retried(self):
+        client = _make_client()
+        captured: List[dict] = []
+
+        def fake_request(*args, **kwargs):
+            captured.append({"args": args, **kwargs})
+            if len(captured) == 1:
+                raise httpx.TimeoutException("timed out")
+            return httpx.Response(status_code=200, json={"ok": True})
+
+        client._client.request = fake_request  # type: ignore[method-assign]
+
+        with patch("time.sleep"):
+            result = client.get("/items")
+
+        assert result == {"ok": True}
+        assert len(captured) == 2
+
+    def test_idempotency_key_header_case_insensitive(self):
+        client = _make_client()
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(200, json_body={"id": "p1"}),
+            ],
+        )
+
+        result = client.post(
+            "/payments",
+            json={"amount": 10},
+            headers={"idempotency-key": "lowercased-key"},
+        )
+
+        assert result == {"id": "p1"}
+        assert len(captured) == 2
+
+    def test_post_exhausts_retries_with_idempotency_key(self):
+        client = _make_client(max_retries=2)
+        captured = _stub_httpx_client(
+            client,
+            [
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+                _resp(502, json_body={"error": {"message": "bad gateway"}}),
+            ],
+        )
+
+        with patch("time.sleep"):
+            with pytest.raises(NetworkError):
+                client.post(
+                    "/payments",
+                    json={"amount": 10},
+                    headers={"Idempotency-Key": "retry-3"},
+                )
+
+        # 3 total attempts: initial + 2 retries
+        assert len(captured) == 3
+
+    def test_extra_headers_are_merged(self):
+        client = _make_client()
+        captured = _stub_httpx_client(client, [_resp(200, json_body={})])
+
+        client.get("/x", headers={"X-Custom": "hello"})
+
+        assert captured[0]["headers"]["X-Custom"] == "hello"
+        # defaults still present
+        assert captured[0]["headers"]["Accept"] == "application/json"
+        assert captured[0]["headers"]["Authorization"] == "Bearer sk_test_xxx"
