@@ -118,7 +118,7 @@ class _SyncHTTPClient:
     def __exit__(self, *args: Any) -> None:
         self.close()
 
-    _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE", "PATCH"})
+    _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
     _IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 
     def _headers(

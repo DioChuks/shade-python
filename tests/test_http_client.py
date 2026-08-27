@@ -644,20 +644,20 @@ class TestIdempotencySafeRetry:
 
         assert len(captured) == 1
 
-    def test_patch_5xx_is_retried(self):
+    def test_patch_5xx_is_not_retried(self):
         client = _make_client()
         captured = _stub_httpx_client(
             client,
             [
                 _resp(503, json_body={"error": {"message": "unavailable"}}),
-                _resp(200, json_body={"ok": True}),
+                _resp(200, json_body={"should": "never-reach-this"}),
             ],
         )
 
-        result = client.patch("/x", json={"a": 1})
+        with pytest.raises(NetworkError):
+            client.patch("/x", json={"a": 1})
 
-        assert result == {"ok": True}
-        assert len(captured) == 2
+        assert len(captured) == 1
 
     def test_delete_5xx_is_retried(self):
         client = _make_client()
