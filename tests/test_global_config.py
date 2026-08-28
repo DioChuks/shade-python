@@ -75,6 +75,34 @@ class TestAuthenticationErrorOnMissingKey:
             gateway.process_payment(50.0, "USD")
 
 
+def _patch_httpx_and_capture(client_wrapper, json_response_body=None, status_code=200, headers=None):
+    """Patch ``wrapper._client.request`` and return (patch_context, capture_list).
+
+    ``capture_list`` will contain one dict per call with keys: ``url``, ``headers``,
+    ``method``, ``params``, ``json``.
+    """
+    import httpx
+
+    captured = []
+
+    def fake_request(*args, **kwargs):
+        captured.append(
+            {
+                "method": args[0] if args else kwargs.get("method", ""),
+                "url": args[1] if len(args) > 1 else kwargs.get("url", ""),
+                "headers": kwargs.get("headers", {}),
+                "params": kwargs.get("params"),
+                "json": kwargs.get("json"),
+            }
+        )
+        body_kwargs: dict = {"text": ""}
+        if json_response_body is not None:
+            body_kwargs = {"json": json_response_body}
+        return httpx.Response(status_code=status_code, headers=headers or {}, **body_kwargs)
+
+    return patch.object(client_wrapper._client, "request", side_effect=fake_request), captured
+
+
 class TestGlobalConfigResourceCalls:
     def test_gateway_uses_global_api_key_and_environment(self):
         shade.api_key = "sk_live_global"
@@ -82,15 +110,16 @@ class TestGlobalConfigResourceCalls:
 
         gateway = Gateway()
 
-        with patch.object(gateway._http, "_execute") as mock_exec:
-            mock_exec.return_value = (200, {}, b'{"id": "pay_1", "status": "success"}')
+        ctx, captured = _patch_httpx_and_capture(
+            gateway._http, {"id": "pay_1", "status": "success"}
+        )
+        with ctx:
             res = gateway.process_payment(200.0, "USD")
 
         assert res == {"id": "pay_1", "status": "success"}
-        mock_exec.assert_called_once()
-        req = mock_exec.call_args[0][0]
-        assert req.headers["Authorization"] == "Bearer sk_live_global"
-        assert req.full_url.startswith("https://api.shadeprotocol.io/v1")
+        assert len(captured) == 1
+        assert captured[0]["headers"]["Authorization"] == "Bearer sk_live_global"
+        assert captured[0]["url"].startswith("https://api.shadeprotocol.io/v1")
 
 
 class TestInstanceOverridesBeatsGlobalConfig:
@@ -98,34 +127,34 @@ class TestInstanceOverridesBeatsGlobalConfig:
         shade.api_key = "sk_global"
         gateway = Gateway(api_key="sk_instance_override")
 
-        with patch.object(gateway._http, "_execute") as mock_exec:
-            mock_exec.return_value = (200, {}, b'{"ok": true}')
+        ctx, captured = _patch_httpx_and_capture(gateway._http, {"ok": True})
+        with ctx:
             gateway.process_payment(10.0, "USD")
 
-        req = mock_exec.call_args[0][0]
-        assert req.headers["Authorization"] == "Bearer sk_instance_override"
+        assert len(captured) == 1
+        assert captured[0]["headers"]["Authorization"] == "Bearer sk_instance_override"
 
     def test_instance_api_base_beats_global(self):
         shade.api_base = "https://global-base.example.com"
         gateway = Gateway(api_key="sk_test", api_base="https://override-base.example.com")
 
-        with patch.object(gateway._http, "_execute") as mock_exec:
-            mock_exec.return_value = (200, {}, b'{"ok": true}')
+        ctx, captured = _patch_httpx_and_capture(gateway._http, {"ok": True})
+        with ctx:
             gateway.process_payment(10.0, "USD")
 
-        req = mock_exec.call_args[0][0]
-        assert req.full_url.startswith("https://override-base.example.com")
+        assert len(captured) == 1
+        assert captured[0]["url"].startswith("https://override-base.example.com")
 
     def test_gateway_environment_override_propagates_to_subclients(self):
         shade.environment = "sandbox"
         gateway = Gateway(api_key="sk_test", environment="production")
 
-        with patch.object(gateway._http, "_execute") as mock_exec:
-            mock_exec.return_value = (200, {}, b'{"ok": true}')
+        ctx, captured = _patch_httpx_and_capture(gateway._http, {"ok": True})
+        with ctx:
             gateway.process_payment(10.0, "USD")
 
-        req = mock_exec.call_args[0][0]
-        assert req.full_url.startswith(Environment.PRODUCTION.base_url)
+        assert len(captured) == 1
+        assert captured[0]["url"].startswith(Environment.PRODUCTION.base_url)
 
     def test_gateway_setter_updates_propagate_to_subclients(self):
         gateway = Gateway(api_key="sk_initial", environment="sandbox")
@@ -133,13 +162,13 @@ class TestInstanceOverridesBeatsGlobalConfig:
         gateway.api_key = "sk_updated_setter"
         gateway.environment = "production"
 
-        with patch.object(gateway._http, "_execute") as mock_exec:
-            mock_exec.return_value = (200, {}, b'{"ok": true}')
+        ctx, captured = _patch_httpx_and_capture(gateway._http, {"ok": True})
+        with ctx:
             gateway.process_payment(10.0, "USD")
 
-        req = mock_exec.call_args[0][0]
-        assert req.headers["Authorization"] == "Bearer sk_updated_setter"
-        assert req.full_url.startswith(Environment.PRODUCTION.base_url)
+        assert len(captured) == 1
+        assert captured[0]["headers"]["Authorization"] == "Bearer sk_updated_setter"
+        assert captured[0]["url"].startswith(Environment.PRODUCTION.base_url)
 
 
 
@@ -194,4 +223,3 @@ class TestThreadSafety:
             # Step 3: Worker thread re-used; check that stale thread-local override is invalidated
             future_read = executor.submit(read_override)
             assert future_read.result() is None
-

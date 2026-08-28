@@ -40,7 +40,7 @@ class BaseResource:
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Send a request through this resource's client and return the body."""
-        return self.client._http.request(method, path, payload)
+        return self.client._http.request(method, path, json=payload)
 
     async def _request_async(
         self,

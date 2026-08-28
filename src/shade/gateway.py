@@ -30,10 +30,9 @@ class Gateway(ShadeClient):
         dict
             API response body.
         """
-        return self._http.request(
-            "POST",
+        return self._http.post(
             "/payments",
-            {"amount": amount, "currency": currency},
+            json={"amount": amount, "currency": currency},
         )
 
     async def process_payment_async(

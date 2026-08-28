@@ -181,16 +181,22 @@ class TestMaxRetriesBehaviour:
         mock_sleep.assert_not_called()
 
     def test_shade_client_max_retries_zero_disables_retries(self):
+        import httpx
+
         client = ShadeClient(api_key="test-key", max_retries=0)
 
-        def fake_execute(req):
-            return 429, {"Retry-After": "3"}, self._fake_429_body()
+        def fake_request(*args, **kwargs):
+            return httpx.Response(
+                status_code=429,
+                headers={"Retry-After": "3"},
+                content=self._fake_429_body(),
+            )
 
-        with patch.object(client._http, "_execute", side_effect=fake_execute), patch(
-            "time.sleep"
-        ) as mock_sleep:
+        with patch.object(
+            client._http._client, "request", side_effect=fake_request
+        ), patch("time.sleep") as mock_sleep:
             with pytest.raises(RateLimitError):
-                client._http.request("POST", "/payments", {})
+                client._http.request("POST", "/payments", json={})
 
         mock_sleep.assert_not_called()
 

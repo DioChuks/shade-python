@@ -50,11 +50,29 @@ def _capture_requests(client: ShadeClient):
     """Patch a client's sync transport, returning the list of sent requests."""
     sent = []
 
-    def fake_execute(req):
-        sent.append(req)
-        return 200, {}, b'{"id": "pay_1"}'
+    def fake_request(*args, **kwargs):
+        import httpx
 
-    return patch.object(client._http, "_execute", side_effect=fake_execute), sent
+        class _FakeReq:
+            def __init__(self, method, url, headers):
+                self._method = method
+                self._url = url
+                self._headers = headers
+
+            def get_header(self, name):
+                return self._headers.get(name)
+
+            @property
+            def full_url(self):
+                return self._url
+
+        method = args[0] if args else kwargs.get("method", "")
+        url = args[1] if len(args) > 1 else kwargs.get("url", "")
+        headers = kwargs.get("headers", {})
+        sent.append(_FakeReq(method, url, headers))
+        return httpx.Response(status_code=200, json={"id": "pay_1"})
+
+    return patch.object(client._http._client, "request", side_effect=fake_request), sent
 
 
 # ---------------------------------------------------------------------------
