@@ -107,12 +107,15 @@ def _resp(
     json_body: Any = None,
     text: Optional[str] = None,
     headers: Optional[dict] = None,
+    request: Optional[httpx.Request] = None,
 ) -> httpx.Response:
     kwargs: dict[str, Any] = {"status_code": status, "headers": headers or {}}
     if json_body is not None:
         kwargs["json"] = json_body
     elif text is not None:
         kwargs["text"] = text
+    if request is not None:
+        kwargs["request"] = request
     return httpx.Response(**kwargs)
 
 
@@ -235,6 +238,45 @@ class TestHeaders:
         client.delete("/x")
 
         assert "Content-Type" not in captured[0]["headers"]
+
+    def test_merge_headers_case_insensitive_replacement(self):
+        client = _make_client()
+        captured = _stub_httpx_client(client, [_resp(200, json_body={})])
+
+        client.get("/x", headers={"authorization": "Bearer custom_token"})
+
+        assert "Authorization" not in captured[0]["headers"]
+        assert captured[0]["headers"]["authorization"] == "Bearer custom_token"
+
+    def test_merge_headers_case_insensitive_none_removal(self):
+        client = _make_client()
+        captured = _stub_httpx_client(client, [_resp(200, json_body={})])
+
+        client.get("/x", headers={"authorization": None})
+
+        assert "Authorization" not in captured[0]["headers"]
+        assert "authorization" not in captured[0]["headers"]
+
+
+class TestCleartextHttp:
+    def test_rejects_non_local_cleartext_http(self):
+        client = _make_client(api_base="http://api.shadeprotocol.io")
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            client.get("/x")
+
+    def test_rejects_local_cleartext_http_when_authorization_not_withheld(self):
+        client = _make_client(api_base="http://localhost:8000")
+        with pytest.raises(ValueError, match="Cleartext HTTP API bases are not allowed"):
+            client.get("/x")
+
+    def test_allows_local_cleartext_http_when_authorization_withheld(self):
+        client = _make_client(api_base="http://localhost:8000")
+        captured = _stub_httpx_client(client, [_resp(200, json_body={})])
+
+        client.get("/x", headers={"Authorization": None})
+
+        assert "Authorization" not in captured[0]["headers"]
+        assert len(captured) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +636,7 @@ class TestPublicApiBoundary:
 def _call_counting_responses(
     client: _SyncHTTPClient,
     responses: List[httpx.Response],
+    method: str = "GET",
 ) -> int:
     """Drive responses through the wrapper and return the number of calls made.
 
@@ -602,13 +645,15 @@ def _call_counting_responses(
     of attempts before raising.
     """
     captured = _stub_httpx_client(client, list(responses))
+    has_request = getattr(responses[0], "_request", None) is not None
+    req_method = responses[0].request.method if has_request else method
     try:
         client.request(
-            responses[0].request.method if responses[0].request else "GET",
+            req_method,
             "/any",
             json={},
         )
-    except Exception:
+    except ShadeError:
         pass
     return len(captured)
 

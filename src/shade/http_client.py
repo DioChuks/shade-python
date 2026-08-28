@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.parse
 from typing import Any, Dict, Mapping, Optional
 
 import httpx
@@ -144,9 +145,11 @@ class _SyncHTTPClient:
             return dict(base)
         merged = dict(base)
         for k, v in extra.items():
-            if v is None:
-                merged.pop(k, None)
-            else:
+            k_fold = k.casefold()
+            matching_keys = [existing_k for existing_k in merged if existing_k.casefold() == k_fold]
+            for existing_k in matching_keys:
+                del merged[existing_k]
+            if v is not None:
                 merged[k] = v
         return merged
 
@@ -223,6 +226,24 @@ class _SyncHTTPClient:
 
         method_upper = method.upper()
         url = _build_full_url(cfg.base_url, path)
+
+        parsed_url = urllib.parse.urlparse(url)
+        if parsed_url.scheme.lower() == "http":
+            hostname = (parsed_url.hostname or "").lower()
+            is_local = hostname in ("localhost", "127.0.0.1", "::1")
+            has_withheld_auth = False
+            if headers:
+                for k, v in headers.items():
+                    if k.casefold() == "authorization" and v is None:
+                        has_withheld_auth = True
+                        break
+            if not is_local:
+                raise ValueError("HTTPS is required for non-local API bases")
+            if not has_withheld_auth:
+                raise ValueError(
+                    "Cleartext HTTP API bases are not allowed when sending bearer credentials"
+                )
+
         final_headers = self._merge_headers(
             self._headers(cfg.api_key, has_json_body=json is not None),
             headers,
