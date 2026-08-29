@@ -17,8 +17,8 @@ import httpx
 
 from .config import Environment, validate_client_settings
 from .config import config as _config
-from .http import AsyncHTTPClient, HTTPXTransport
-from .http_client import _SyncHTTPClient
+from .http import HTTPXTransport
+from .http_client import _AsyncHTTPClient, _SyncHTTPClient
 
 API_KEY_ENV_VAR = "SHADE_API_KEY"
 ENVIRONMENT_ENV_VAR = "SHADE_ENVIRONMENT"
@@ -105,8 +105,8 @@ class ShadeClient:
             max_retries=self._max_retries,
             timeout=self._timeout,
         )
-        self._async_http = AsyncHTTPClient(
-            base_url=self._api_base,
+        self._async_http = _AsyncHTTPClient(
+            api_base=self._api_base,
             api_key=self._api_key,
             environment=self._environment,
             max_retries=self._max_retries,
@@ -196,11 +196,21 @@ class ShadeClient:
         self._http.close()
         self._client.close()
 
+    async def aclose(self) -> None:
+        self.close()
+        await self._async_http.aclose()
+
     def __enter__(self) -> "ShadeClient":
         return self
 
     def __exit__(self, *args: Any) -> None:
         self.close()
+
+    async def __aenter__(self) -> "ShadeClient":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.aclose()
 
     def request(
         self,
