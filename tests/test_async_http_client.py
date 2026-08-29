@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 import shade
-from shade import BaseResource, ShadeClient
+from shade import BaseResource, Environment, ShadeClient
 from shade.client import API_KEY_ENV_VAR, ENVIRONMENT_ENV_VAR, reset_default_client
 from shade.config import config as _config
 from shade.errors import (
@@ -412,9 +412,41 @@ class TestAsyncClientLifecycle:
         assert len(closed) == 1
 
     @pytest.mark.anyio
-    async def test_shade_client_has_async_http_wrapper(self):
+    async def test_shade_client_lazy_async_http_initialization(self):
         sc = ShadeClient(api_key="sk_test_xxx")
-        assert isinstance(sc._async_http, _AsyncHTTPClient)
+        assert sc._async_http_instance is None
+
+        # Access property constructs instance lazily
+        wrapper = sc._async_http
+        assert sc._async_http_instance is not None
+        assert isinstance(wrapper, _AsyncHTTPClient)
+        assert wrapper.api_key == "sk_test_xxx"
+
+    @pytest.mark.anyio
+    async def test_shade_client_close_uninitialized_async_client(self):
+        sc = ShadeClient(api_key="sk_test_xxx")
+        assert sc._async_http_instance is None
+
+        # Closing sync client or async client when uninitialized does not instantiate it
+        sc.close()
+        assert sc._async_http_instance is None
+
+        await sc.aclose()
+        assert sc._async_http_instance is None
+
+    @pytest.mark.anyio
+    async def test_shade_client_guarded_setters_when_uninitialized(self):
+        sc = ShadeClient(api_key="sk_test_xxx")
+        assert sc._async_http_instance is None
+
+        sc.api_key = "sk_test_updated"
+        sc.environment = "production"
+        assert sc._async_http_instance is None
+
+        # First access constructs async client with updated settings
+        async_http = sc._async_http
+        assert async_http.api_key == "sk_test_updated"
+        assert async_http.environment == Environment.PRODUCTION
 
     @pytest.mark.anyio
     async def test_shade_client_aclose_closes_async_wrapper(self):
